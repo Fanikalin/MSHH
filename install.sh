@@ -70,7 +70,11 @@ install_toolchain_bazzite() {
   brew install rust
   command -v git >/dev/null 2>&1 || brew install git
   if ! command -v cc >/dev/null 2>&1 && ! command -v gcc >/dev/null 2>&1; then
-    brew install gcc
+    # postinstall gcc может споткнуться об отсутствие /usr/bin/cc — это не фатально
+    brew install gcc || say "!! brew install gcc: предупреждение postinstall, продолжаем"
+  fi
+  if ! command -v cc >/dev/null 2>&1 && command -v gcc >/dev/null 2>&1; then
+    export CC=gcc  # crate `cc` ищет исполняемый `cc`; у brew — `gcc`
   fi
   command -v cargo >/dev/null 2>&1 || { say "!! cargo недоступен после brew install rust"; exit 1; }
 }
