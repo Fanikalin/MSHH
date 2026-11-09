@@ -1,11 +1,13 @@
 //! Пример модуля MSHH: локальный «протокол»-эхо.
-//! Демонстрирует полный цикл ABI v2: схему БД с изоляцией по профилю,
-//! настройки профиля, восстановление истории, стандартные действия.
+//! Демонстрирует полный цикл ABI v3: схему БД с изоляцией по профилю,
+//! настройки профиля, восстановление истории, стандартные действия,
+//! поиск, хедер собеседника и кнопки композера.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use mshh_module_api::model::{
-    actions, AccountView, Body, ChatView, Ev, FieldDef, MessageView, Row, SqlValue, UiCmd,
+    actions, AccountView, Avatar, Body, ChatKind, ChatView, ComposerButton, Ev, FieldDef,
+    MessageView, Row, SqlValue, UiCmd,
 };
 use mshh_module_api::prelude::*;
 use mshh_module_api::register::Module;
@@ -39,6 +41,11 @@ impl Module for Echo {
 
         push_ui(&s);
         push_history(&s, &table);
+        // Кнопки модуля в поле ввода (пример).
+        s.send_ui(&UiCmd::SetComposerButtons(vec![ComposerButton {
+            id: "dice".into(),
+            label: "🎲".into(),
+        }]));
 
         loop {
             match s.recv() {
@@ -51,6 +58,52 @@ impl Module for Echo {
                     s.info(TAG, "настройки профиля применены");
                 }
                 Some(Ev::UiAction { action, chat_id, payload }) => {
+                    if action == actions::SEARCH_QUERY {
+                        // Поиск по чатам профиля: ответ обязателен и с тем же query.
+                        let query = payload
+                            .get("query")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_lowercase();
+                        let chats = echo_chats(&s, &table)
+                            .into_iter()
+                            .filter(|c| {
+                                query.is_empty()
+                                    || c.title.to_lowercase().contains(&query)
+                                    || c.id.to_lowercase().contains(&query)
+                            })
+                            .collect();
+                        s.send_ui(&UiCmd::SearchResults { query: payload
+                            .get("query")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string(), chats });
+                        continue;
+                    }
+                    if action == actions::COMPOSER_BUTTON {
+                        let button = payload.get("button").and_then(|v| v.as_str()).unwrap_or("");
+                        let chat = chat_id.clone().unwrap_or_else(|| CHAT.to_string());
+                        if button == "dice" {
+                            let emoji = ["🎲", "🐸", "🦊", "🐳", "🌵"]
+                                [(s.now_ms() as usize) % 5];
+                            store_and_show(&s, &table, &chat, false, "Echo", emoji);
+                        }
+                        continue;
+                    }
+                    if action == actions::CHAT_OPEN {
+                        // Строка профиля собеседника над чатом (модуль задаёт сам).
+                        let chat = chat_id.clone().unwrap_or_else(|| CHAT.to_string());
+                        s.send_ui(&UiCmd::SetChatHeader {
+                            chat_id: chat.clone(),
+                            text: format!("эхо-собеседник «{chat}» · отвечает автоматически"),
+                            avatar: Some(Avatar::Initial { text: "Эхо".into() }),
+                        });
+                        continue;
+                    }
+                    if action == actions::ACCOUNT_SWITCH {
+                        // У echo один аккаунт; пример контракта для мультиаккаунтов.
+                        continue;
+                    }
                     if action != actions::COMPOSER_SEND {
                         continue;
                     }
@@ -138,13 +191,47 @@ fn push_ui(s: &Session) {
         id: "echo".into(),
         name: "Echo".into(),
         status: "локальный протокол".into(),
+        active: true,
+        avatar: None,
     }]));
-    s.send_ui(&UiCmd::SetChats(vec![ChatView {
+    s.send_ui(&UiCmd::SetChats(
+        echo_chats(s, &format!("mod_echo_{}_messages", s.profile()))
+            .into_iter()
+            .collect(),
+    ));
+}
+
+/// Чаты профиля: локальный чат + все диалоги, в которых уже писали.
+fn echo_chats(s: &Session, table: &str) -> Vec<ChatView> {
+    let mut chats = vec![ChatView {
         id: CHAT.into(),
         title: "Локальный чат".into(),
         subtitle: Some("эхо-протокол".into()),
         unread: 0,
-    }]));
+        kind: ChatKind::Group,
+        avatar: None,
+    }];
+    let Ok(rows) = s.storage_exec(
+        &format!("SELECT DISTINCT chat_id FROM {table} WHERE chat_id != ?1"),
+        &[SqlValue::Text(CHAT.into())],
+    ) else {
+        return chats;
+    };
+    for r in rows {
+        let Some(name) = r.first().and_then(as_text).map(String::from) else { continue };
+        if chats.iter().any(|c| c.id == name) {
+            continue;
+        }
+        chats.push(ChatView {
+            id: name.clone(),
+            title: name,
+            subtitle: Some("эхо-протокол".into()),
+            unread: 0,
+            kind: ChatKind::Person,
+            avatar: None,
+        });
+    }
+    chats
 }
 
 fn push_history(s: &Session, table: &str) {

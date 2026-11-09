@@ -31,6 +31,24 @@ impl RatingColor {
             RatingColor::Red => "красный",
         }
     }
+
+    /// Строковый ключ для персистентности (правила групп).
+    pub fn key(self) -> &'static str {
+        match self {
+            RatingColor::Green => "green",
+            RatingColor::Yellow => "yellow",
+            RatingColor::Red => "red",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<RatingColor> {
+        match s {
+            "green" => Some(RatingColor::Green),
+            "yellow" => Some(RatingColor::Yellow),
+            "red" => Some(RatingColor::Red),
+            _ => None,
+        }
+    }
 }
 
 /// Рейтинг одного модуля для отображения.
