@@ -66,12 +66,14 @@
 - ✅ Кнопки модуля в поле ввода (`SetComposerButtons`; клик →
   `__composer.button`). У echo — пример с 🎲.
 
-## ABI — ✅ v3 (модули — 🚧 миграция)
+## ABI — ✅ v3 полностью (ядро, echo и все 7 модулей мигрированы)
 
 - v3: `ChatView::kind` (`ChatKind`: person/group/channel/bot),
   `ChatView::avatar`, `AccountView::avatar/active`, `UiCmd::SearchResults`,
   `UiCmd::SetChatHeader`, `UiCmd::SetComposerButtons`,
   actions: `__search.query`, `__account.switch`, `__composer.button`.
-- ✅ Ядро и echo на v3. Модули в ../MSHH-modules переводятся на v3 и
-  пересобираются (субагенты; готово: irc, max, reticulum, telegram —
-  в telegram поиск серверный: `contacts.search`).
+- ✅ Модули ../MSHH-modules: irc, max, reticulum, telegram (серверный
+  `contacts.search`), matrix (SetChatHeader: участники/E2EE),
+  matrix-e2e (e2e-обвязка search round-trip), xmpp (presence-статусы в
+  хедере). Все билды и тесты зелёные, .so переустановлены в
+  `~/.local/share/mshh/modules`.
