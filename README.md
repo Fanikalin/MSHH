@@ -31,6 +31,11 @@ scripts/install-modules.sh      # копирует модули в ~/.local/shar
 SQLite, на каждое отправленное сообщение отвечает «Эхо: …». Это образец SDK:
 см. [docs/MODULES.md](docs/MODULES.md) и [modules/echo](modules/echo).
 
+Каталог боевых модулей — отдельный репозиторий
+[MSHH-modules](../MSHH-modules): Telegram (grammers), Matrix (matrix-sdk,
+E2EE), MAX (Bot API, ограниченный режим), Reticulum (P2P), XMPP, IRC
+(TLS-only). Их рейтинги доверия вшиты в ядро — клавиша `m`.
+
 ## Управление (TUI)
 
 | Клавиши | Действие |
