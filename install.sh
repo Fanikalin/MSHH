@@ -77,22 +77,27 @@ prepare_build_box() {
     distrobox create --name "$BOX_NAME" --image "$BOX_IMAGE" --yes
   fi
   say "==> Тулчейн внутри $BOX_NAME"
+  # cargo может прийти из общего $HOME (rustup хоста) — он работает в боксе;
+  # но cc/линкер нужны именно контейнерные, хостовый /usr/bin внутри не виден.
   distrobox enter --name "$BOX_NAME" -- bash -euc '
-    command -v cargo >/dev/null 2>&1 && exit 0
-    if command -v apt-get >/dev/null 2>&1; then
-      export DEBIAN_FRONTEND=noninteractive
-      sudo apt-get update -y
-      sudo apt-get install -y build-essential curl git ca-certificates
-    elif command -v dnf >/dev/null 2>&1; then
-      sudo dnf install -y gcc gcc-c++ make curl git
-    elif command -v pacman >/dev/null 2>&1; then
-      sudo pacman -S --needed --noconfirm base-devel curl git
-    else
-      echo "!! В контейнере нет известного пакетного менеджера" >&2
-      exit 1
+    if ! command -v cc >/dev/null 2>&1; then
+      if command -v apt-get >/dev/null 2>&1; then
+        export DEBIAN_FRONTEND=noninteractive
+        sudo apt-get update -y
+        sudo apt-get install -y build-essential curl git ca-certificates
+      elif command -v dnf >/dev/null 2>&1; then
+        sudo dnf install -y gcc gcc-c++ make curl git
+      elif command -v pacman >/dev/null 2>&1; then
+        sudo pacman -S --needed --noconfirm base-devel curl git
+      else
+        echo "!! В контейнере нет известного пакетного менеджера" >&2
+        exit 1
+      fi
     fi
-    curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
-    command -v "$HOME/.cargo/bin/cargo" >/dev/null 2>&1
+    command -v cargo >/dev/null 2>&1 || {
+      curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+    }
+    command -v cc >/dev/null 2>&1 || { echo "!! В контейнере нет cc" >&2; exit 1; }
   '
 }
 
