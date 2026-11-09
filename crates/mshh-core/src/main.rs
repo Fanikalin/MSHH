@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crossterm::event;
 use mshh_module_api::model::{Ev, FieldDef};
@@ -75,6 +75,10 @@ fn main() -> std::process::ExitCode {
 
     // ---------- TUI ----------
 
+    // Детектор графического протокола — до потока ввода (запрашивает
+    // ответ терминала из stdin).
+    tui::init_picker();
+
     let mut terminal = match tui::init() {
         Ok(t) => t,
         Err(e) => {
@@ -137,7 +141,9 @@ fn main() -> std::process::ExitCode {
     };
 
     loop {
-        if let Ok(frame) = terminal.draw(|f| render::draw(f, &app)) {
+        let now = Instant::now();
+        app.tick_anims(now);
+        if let Ok(frame) = terminal.draw(|f| render::draw(f, &mut app)) {
             app.area = frame.area;
         }
         let first = match rx.recv_timeout(Duration::from_millis(250)) {
@@ -257,10 +263,11 @@ fn refresh_installed(app: &mut App, runtime: &Runtime) {
     app.installed_modules = list;
 }
 
-fn spawn_install(ctx: &InstallCtx, url: String, subdir: Option<String>) {
+fn spawn_install(ctx: &InstallCtx, url: String, subdir: Option<String>, base_id: Option<&str>) {
     let tx = ctx.tx.clone();
     let work = ctx.work.clone();
     let dest = ctx.dest.clone();
+    let base_id = base_id.map(str::to_string);
     let _ = std::thread::Builder::new()
         .name("mshh-install".into())
         .spawn(move || {
@@ -272,6 +279,7 @@ fn spawn_install(ctx: &InstallCtx, url: String, subdir: Option<String>) {
                 subdir.as_deref(),
                 &work,
                 &dest,
+                base_id.as_deref(),
                 &|m: String| progress(m.clone()),
             );
             let _ = tx.send(Event::Install {
@@ -383,12 +391,12 @@ fn handle_core_cmd(
         }
         CoreCmd::InstallBase { idx } => {
             match mshh_core::installer::BASE_MODULES.get(idx) {
-                Some(b) => spawn_install(install, b.url.to_string(), Some(b.subdir.to_string())),
+                Some(b) => spawn_install(install, b.url.to_string(), Some(b.subdir.to_string()), Some(b.id)),
                 None => app.toast_now("нет такого базового модуля"),
             }
         }
         CoreCmd::InstallUrl { url } => {
-            spawn_install(install, url, None);
+            spawn_install(install, url, None, None);
         }
         CoreCmd::AddGroup { name } => match store.group_add(&name) {
             Ok(g) => {

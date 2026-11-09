@@ -18,6 +18,7 @@ pub struct BaseModule {
 }
 
 pub const BASE_MODULES: &[BaseModule] = &[
+    BaseModule { id: "echo", name: "Test", url: "https://github.com/Fanikalin/MSHH.git", subdir: "modules/echo" },
     BaseModule { id: "telegram", name: "Telegram", url: "https://github.com/Fanikalin/MSHH-modules.git", subdir: "telegram" },
     BaseModule { id: "matrix", name: "Matrix", url: "https://github.com/Fanikalin/MSHH-modules.git", subdir: "matrix" },
     BaseModule { id: "max", name: "MAX", url: "https://github.com/Fanikalin/MSHH-modules.git", subdir: "max" },
@@ -94,6 +95,30 @@ fn walk(dir: &Path, depth: usize, out: &mut Vec<(PathBuf, String)>) {
     }
 }
 
+/// Найти cargo: PATH запущенного процесса бывает урезан (mshh не из
+/// терминала), поэтому проверяем и стандартные места установки rust.
+pub fn find_cargo() -> Option<PathBuf> {
+    if let Ok(path_var) = std::env::var("PATH") {
+        for dir in std::env::split_paths(&path_var) {
+            let p = dir.join("cargo");
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+    }
+    let mut cands: Vec<PathBuf> = Vec::new();
+    if let Ok(ch) = std::env::var("CARGO_HOME") {
+        cands.push(PathBuf::from(ch).join("bin/cargo"));
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        cands.push(PathBuf::from(home).join(".cargo/bin/cargo"));
+    }
+    cands.push(PathBuf::from("/usr/bin/cargo"));
+    cands.push(PathBuf::from("/usr/local/bin/cargo"));
+    cands.push(PathBuf::from("/opt/cargo/bin/cargo"));
+    cands.into_iter().find(|p| p.is_file())
+}
+
 /// Установить модуль из уже склонированного репозитория.
 /// `subdir` ограничивает поиск крейтов поддеревом. Возвращает путь к .so.
 pub fn install_from_repo(
@@ -121,11 +146,16 @@ pub fn install_from_repo(
     }
 
     progress(format!("сборка {pkg} (cargo build --release)…"));
-    let out = std::process::Command::new("cargo")
+    let cargo = find_cargo().ok_or_else(|| {
+        "rust не найден: для сборки модуля нужен cargo — установи rust \
+         (arch: pacman -S rust, bazzite/fedora: brew install rust) и перезапусти установку"
+            .to_string()
+    })?;
+    let out = std::process::Command::new(&cargo)
         .args(["build", "--release"])
         .current_dir(&crate_dir)
         .output()
-        .map_err(|e| format!("cargo не запущен: {e}"))?;
+        .map_err(|e| format!("cargo не запущен ({}): {e}", cargo.display()))?;
     if !out.status.success() {
         let tail = String::from_utf8_lossy(&out.stderr);
         let tail = tail.lines().rev().take(8).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
@@ -186,16 +216,55 @@ fn search_file(dir: &Path, name: &str, depth: usize, max: usize, found: &mut Opt
     }
 }
 
+/// Готовый .so из Releases MSHH-modules: не требует rust на машине.
+/// None — скачать не удалось (тогда caller собирает из исходников).
+fn try_prebuilt(
+    base_id: &str,
+    dest_dir: &Path,
+    progress: &dyn Fn(String),
+) -> Option<PathBuf> {
+    let url = format!(
+        "https://github.com/Fanikalin/MSHH-modules/releases/latest/download/mshh-module-{base_id}.so"
+    );
+    std::fs::create_dir_all(dest_dir).ok()?;
+    let tmp = dest_dir.join(format!(".tmp-{base_id}.so"));
+    let _ = std::fs::remove_file(&tmp);
+    progress(format!("пробую готовый {base_id}.so из Releases…"));
+    let out = std::process::Command::new("curl")
+        .args(["-fsSL", "--max-time", "120", "-o"])
+        .arg(&tmp)
+        .arg(&url)
+        .output()
+        .ok()?;
+    if !out.status.success() || !tmp.is_file() || tmp.metadata().ok()?.len() < 1024 {
+        let _ = std::fs::remove_file(&tmp);
+        progress("готового .so нет — соберу из исходников".into());
+        return None;
+    }
+    let dest = dest_dir.join(format!("libmshh_module_{base_id}.so"));
+    std::fs::copy(&tmp, &dest).ok()?;
+    let _ = std::fs::remove_file(&tmp);
+    logger::info("installer", &format!("скачан готовый {} -> {}", base_id, dest.display()));
+    Some(dest)
+}
+
 /// Полный цикл: клонировать и установить. `subdir` ограничивает поиск
 /// крейтов поддеревом репозитория (для базовых модулей — обязателен).
+/// `base_id` — если модуль из каталога, сначала пробуем prebuilt.
 /// Возвращает путь к .so.
 pub fn install_from_url(
     url: &str,
     subdir: Option<&str>,
     work_dir: &Path,
     dest_dir: &Path,
+    base_id: Option<&str>,
     progress: &dyn Fn(String),
 ) -> Result<PathBuf, String> {
+    if let Some(id) = base_id {
+        if let Some(so) = try_prebuilt(id, dest_dir, progress) {
+            return Ok(so);
+        }
+    }
     let (clean_url, url_subdir) = split_url(url);
     let subdir = subdir.or(url_subdir.as_deref());
     if clean_url.is_empty() {

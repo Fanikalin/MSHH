@@ -5,6 +5,7 @@ pub mod app;
 pub mod args;
 pub mod dirs;
 pub mod events;
+pub mod images;
 pub mod installer;
 pub mod loader;
 pub mod logger;

@@ -4,6 +4,7 @@
 //! на границе ядра префикс снимается — модуль видит свои идентификаторы.
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{
@@ -80,7 +81,6 @@ pub struct DisplaySettings {
     pub chat_subtitles: bool,
     pub msg_time: bool,
     pub time_24h: bool,
-    pub hints_bar: bool,
 }
 
 impl Default for DisplaySettings {
@@ -89,25 +89,22 @@ impl Default for DisplaySettings {
             chat_subtitles: true,
             msg_time: true,
             time_24h: true,
-            hints_bar: true,
         }
     }
 }
 
 impl DisplaySettings {
-    pub const KEYS: [(&'static str, &'static str); 4] = [
+    pub const KEYS: [(&'static str, &'static str); 3] = [
         ("chat_subtitles", "Субтитры в списке чатов"),
         ("msg_time", "Время у сообщений"),
         ("time_24h", "24-часовой формат времени"),
-        ("hints_bar", "Строка подсказок"),
     ];
 
     pub fn get(&self, key: &str) -> bool {
         match key {
             "chat_subtitles" => self.chat_subtitles,
             "msg_time" => self.msg_time,
-            "time_24h" => self.time_24h,
-            _ => self.hints_bar,
+            _ => self.time_24h,
         }
     }
 
@@ -115,8 +112,7 @@ impl DisplaySettings {
         match key {
             "chat_subtitles" => self.chat_subtitles = value,
             "msg_time" => self.msg_time = value,
-            "time_24h" => self.time_24h = value,
-            _ => self.hints_bar = value,
+            _ => self.time_24h = value,
         }
     }
 }
@@ -337,6 +333,68 @@ pub struct App {
     /// Пикер аккаунта над композером.
     pub account_picker: bool,
     account_picker_sel: usize,
+    /// Выбор аккаунтов от модуля (только могущие писать): chat_key → accounts.
+    pub account_choices: HashMap<ChatId, Vec<AccountView>>,
+    /// Активные kitty-анимации GIF (по путям файлов).
+    pub anims: Vec<Anim>,
+}
+
+/// Одна kitty-анимация GIF.
+#[derive(Clone, Debug)]
+pub struct Anim {
+    pub image_id: u32,
+    pub path: String,
+    /// Задержки кадров в мс.
+    pub delays: Vec<u32>,
+    /// Текущий кадр (0-based).
+    pub cur: usize,
+    /// Когда показывать следующий кадр.
+    pub due: Instant,
+}
+
+impl App {
+    /// Продвинуть kitty-анимации: из-за таймера — переключение кадра
+    /// терминалом (кадры уже залиты).
+    pub fn tick_anims(&mut self, now: Instant) {
+        for a in &mut self.anims {
+            if a.due <= now {
+                a.cur = (a.cur + 1) % a.delays.len();
+                crate::images::kitty_anim_switch(a.image_id, (a.cur + 1) as u32);
+                a.due = now + Duration::from_millis(a.delays[a.cur] as u64);
+            }
+        }
+    }
+
+    /// Завести анимацию и разместить в ячейках (idempotent по пути).
+    pub(crate) fn ensure_anim(&mut self, path: &str, col: u16, row: u16, cols: u16, rows: u16) {
+        if let Some(a) = self.anims.iter_mut().find(|a| a.path == path) {
+            crate::images::kitty_anim_place(a.image_id, col, row, cols, rows);
+            return;
+        }
+        let Some(frames) = crate::images::gif_frames(Path::new(path)) else { return };
+        let mut h: u64 = 0xcbf29ce484222325;
+        for b in path.bytes() {
+            h ^= b as u64;
+            h = h.wrapping_mul(0x100000001b3);
+        }
+        let image_id = ((h & 0x0FFF_FFFF) | 1) as u32;
+        let delays: Vec<u32> = frames.iter().map(|(_, d)| *d).collect();
+        let first_delay = delays[0];
+        crate::images::kitty_anim_root(image_id, &frames[0].0);
+        for (_, (png, d)) in frames.iter().enumerate().skip(1) {
+            crate::images::kitty_anim_frame_data(image_id, png, *d);
+        }
+        crate::images::kitty_anim_root_gap(image_id, first_delay);
+        crate::images::kitty_anim_run(image_id);
+        crate::images::kitty_anim_place(image_id, col, row, cols, rows);
+        self.anims.push(Anim {
+            image_id,
+            path: path.to_string(),
+            delays,
+            cur: 0,
+            due: Instant::now() + Duration::from_millis(first_delay as u64),
+        });
+    }
 }
 
 impl App {
@@ -464,6 +522,8 @@ impl App {
             composer_buttons: HashMap::new(),
             account_picker: false,
             account_picker_sel: 0,
+            account_choices: HashMap::new(),
+            anims: Vec::new(),
             profile_count,
         }
     }
@@ -542,6 +602,11 @@ impl App {
             }
             UiCmd::SetComposerButtons(v) => {
                 self.composer_buttons.insert(profile.to_string(), std::mem::take(v));
+                return;
+            }
+            UiCmd::SetAccountChoices { chat_id, accounts } => {
+                let key = ckey(profile, chat_id);
+                self.account_choices.insert(key, std::mem::take(accounts));
                 return;
             }
             _ => {}
@@ -1615,19 +1680,19 @@ impl App {
 
     /// Клик по сайдбару/правой панели: раскладка из render::main_layout.
     fn on_main_click(&mut self, col: u16, row: u16) -> Option<PendingAction> {
-        let l = crate::render::main_layout(self.area, self.groups.len(), self.composer_height());
+        let l = crate::render::main_layout(self.area, self.composer_height());
         let inside = |r: Rect| col >= r.x && col < r.x + r.width && row >= r.y && row < r.y + r.height;
 
         if inside(l.search) {
             self.focus = Focus::Search;
             return None;
         }
-        if inside(l.settings_btn) {
+        if inside(l.rail_settings) {
             self.open_settings();
             return None;
         }
-        if inside(l.groups) {
-            let idx = row.saturating_sub(l.groups.y + 1) as usize;
+        if inside(l.rail_groups) {
+            let idx = row.saturating_sub(l.rail_groups.y) as usize;
             if idx == 0 {
                 self.active_group = None;
             } else if let Some(g) = self.groups.get(idx - 1) {
@@ -1660,8 +1725,7 @@ impl App {
         }
 
         if inside(l.account_chip) {
-            self.open_account_picker();
-            return None;
+            return self.open_account_picker();
         }
         if let Some(btns) = l.composer_buttons {
             if inside(btns) {
@@ -1738,18 +1802,37 @@ impl App {
 
     // ---------- пикер аккаунта ----------
 
-    fn open_account_picker(&mut self) {
-        if self.account_picker_open_accounts().is_empty() {
-            self.toast_now("у профиля нет других аккаунтов");
-            return;
+    fn open_account_picker(&mut self) -> Option<PendingAction> {
+        if self.selected_chat_profile().is_none() {
+            return None;
         }
+        // Спросить у модуля, кто МОЖЕТ писать в этот чат; пока модуль не
+        // ответил, показываем прошлогний/полный список.
+        let profile = self.selected_chat_profile()?;
+        let raw = split_ckey(self.selected.as_ref()?).1;
         self.account_picker = true;
         self.account_picker_sel = 0;
+        Some(PendingAction {
+            profile,
+            ev: Ev::UiAction {
+                action: actions::ACCOUNT_LIST.into(),
+                chat_id: Some(raw.clone()),
+                payload: json!({ "chat_id": raw }),
+            },
+        })
     }
 
-    /// Аккаунты профиля выбранного чата.
+    /// Аккаунты для пикера: сначала ответ модуля (только могущие писать),
+    /// если ответа нет — все аккаунты профиля.
     pub(crate) fn account_picker_open_accounts(&self) -> Vec<&AccountView> {
         let Some(profile) = self.selected_chat_profile() else { return Vec::new() };
+        if let Some(key) = self.selected.as_ref() {
+            if let Some(choices) = self.account_choices.get(key) {
+                if !choices.is_empty() {
+                    return choices.iter().collect();
+                }
+            }
+        }
         self.accounts
             .iter()
             .filter(|(p, _)| *p == profile)
