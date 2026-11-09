@@ -117,8 +117,87 @@ impl Store {
         Ok(())
     }
 
+    // ---------- группы чатов ----------
+
+    /// Все группы с правилами, в порядке создания.
+    pub fn groups(&self) -> Result<Vec<Group>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let mut stmt = conn
+            .prepare("SELECT id, name FROM core_groups ORDER BY created ASC, rowid ASC")
+            .map_err(|e| e.to_string())?;
+        let mut out: Vec<Group> = stmt
+            .query_map([], |r| Group {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                rules: Vec::new(),
+            })
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        let mut rules = conn
+            .prepare("SELECT group_id, kind, value FROM core_group_rules")
+            .map_err(|e| e.to_string())?;
+        let mut it = rules
+            .query([])
+            .map_err(|e| e.to_string())?;
+        while let Some(r) = it.next().map_err(|e| e.to_string())? {
+            let gid: String = r.get(0)?;
+            let rule = GroupRule { kind: r.get(1)?, value: r.get(2)? };
+            if let Some(g) = out.iter_mut().find(|g| g.id == gid) {
+                g.rules.push(rule);
+            }
+        }
+        Ok(out)
+    }
+
+    pub fn group_add(&self, name: &str) -> Result<Group, String> {
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let id = format!(
+            "g{}{:02x}",
+            SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0),
+            SEQ.fetch_add(1, Ordering::Relaxed),
+        );
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT INTO core_groups (id, name, created) VALUES (?1, ?2, ?3)",
+            rusqlite::params![id, name, id],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(Group { id, name: name.into(), rules: Vec::new() })
+    }
+
+    pub fn group_delete(&self, id: &str) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM core_group_rules WHERE group_id = ?1", [id])
+            .map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM core_groups WHERE id = ?1", [id])
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn group_rule_add(&self, group_id: &str, rule: &GroupRule) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT OR IGNORE INTO core_group_rules (group_id, kind, value) VALUES (?1, ?2, ?3)",
+            rusqlite::params![group_id, rule.kind, rule.value],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn group_rule_remove(&self, group_id: &str, rule: &GroupRule) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "DELETE FROM core_group_rules WHERE group_id = ?1 AND kind = ?2 AND value = ?3",
+            rusqlite::params![group_id, rule.kind, rule.value],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     /// Настройки отображения самого ядра (профиль `__app`).
-    pub fn app_get(&self, key: &str) -> Option<String> {        let conn = self.conn.lock().ok()?;
+    pub fn app_get(&self, key: &str) -> Option<String> {
+        let conn = self.conn.lock().ok()?;
         conn.query_row(
             "SELECT value FROM core_app WHERE key = ?1",
             [key],
@@ -178,6 +257,19 @@ impl Store {
         .map_err(|e| e.to_string())?;
         conn.execute(
             "CREATE TABLE IF NOT EXISTS core_app (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+            [],
+        )
+        .map_err(|e| e.to_string())?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS core_groups (\
+             id TEXT PRIMARY KEY, name TEXT NOT NULL, created TEXT NOT NULL)",
+            [],
+        )
+        .map_err(|e| e.to_string())?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS core_group_rules (\
+             group_id TEXT NOT NULL, kind TEXT NOT NULL, value TEXT NOT NULL, \
+             PRIMARY KEY (group_id, kind, value))",
             [],
         )
         .map_err(|e| e.to_string())?;

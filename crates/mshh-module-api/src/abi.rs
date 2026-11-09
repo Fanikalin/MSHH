@@ -17,8 +17,12 @@ use std::ffi::c_void;
 /// v2: `mshh_module_start(host, profile)`, экспорт `mshh_module_settings`,
 /// событие `Ev::Settings`, `Session::profile()`; разрешены несколько
 /// экземпляров одной библиотеки (профили).
-/// v3: `ChatView::kind` ([`ChatKind`]), `UiCmd::SearchResults` и
-/// `actions::SEARCH_QUERY` — поиск по чатам модуля для строки поиска ядра.
+/// v3: `ChatView::kind` (`ChatKind`) и `ChatView::avatar` ([`Avatar`]),
+/// `AccountView::active/avatar`, `UiCmd::SearchResults` +
+/// `actions::SEARCH_QUERY` (поиск по чатам модуля), `UiCmd::SetChatHeader`
+/// (строка собеседника над чатом), `UiCmd::SetComposerButtons` +
+/// `actions::ACCOUNT_SWITCH`/`COMPOSER_BUTTON` (кружок аккаунта и кнопки
+/// модуля в поле ввода).
 pub const ABI_VERSION: u32 = 3;
 
 pub mod log_level {

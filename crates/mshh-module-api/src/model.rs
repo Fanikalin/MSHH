@@ -50,10 +50,36 @@ pub enum UiCmd {
     },
     CloseLogin,
     Toast { text: String },
+    /// Строка профиля собеседника над чатом (правая панель). `text` —
+    /// произвольное описание от модуля; `avatar` — его кружок.
+    SetChatHeader { chat_id: ChatId, text: String, avatar: Option<Avatar> },
+    /// Кнопки модуля в поле ввода. Рендерятся над строкой ввода;
+    /// клик → [`actions::COMPOSER_BUTTON`] с `{"button": id, "chat_id": ...}`.
+    SetComposerButtons(Vec<ComposerButton>),
     /// Ответ на [`actions::SEARCH_QUERY`]: найденные чаты этого профиля.
     /// `query` — та же строка, что пришла в запросе (ядро отбрасывает
     /// устаревшие ответы). Идентификаторы чатов — без префикса профиля.
     SearchResults { query: String, chats: Vec<ChatView> },
+}
+
+/// Кнопка модуля в поле ввода (эмодзи, голосовое, файл и т.д.).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ComposerButton {
+    /// Стабильный идентификатор; возвращается модулю в `__composer.button`.
+    pub id: String,
+    /// Подпись/иконка (1–2 символа или короткий текст).
+    pub label: String,
+}
+
+/// Кружок-аватар чата или аккаунта. Если `None`, ядро рисует цветной кружок
+/// (цвет из имени) с первой буквой имени.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "t", content = "v")]
+pub enum Avatar {
+    /// Буква/эмодзи вместо первой буквы; цвет ядро считает из имени.
+    Initial { text: String },
+    /// Картинка по локальному пути (модуль скачивает файл сам).
+    Image { path: String },
 }
 
 /// Тип чата; влияет на фильтры групп и иконки. Модули проставляют сами.
@@ -113,6 +139,13 @@ pub struct AccountView {
     pub id: AccountId,
     pub name: String,
     pub status: String,
+    /// Активный аккаунт профиля: от его лица идут сообщения (кружок в
+    /// композере). Ровно один на профиль.
+    #[serde(default)]
+    pub active: bool,
+    /// Кружок аккаунта; None → цвет из имени + первая буква.
+    #[serde(default)]
+    pub avatar: Option<Avatar>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -124,6 +157,9 @@ pub struct ChatView {
     /// Тип чата; отсутствующее поле в JSON читается как [`ChatKind::Person`].
     #[serde(default)]
     pub kind: ChatKind,
+    /// Кружок чата; None → цвет из имени + первая буква.
+    #[serde(default)]
+    pub avatar: Option<Avatar>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -166,6 +202,12 @@ pub mod actions {
     /// payload: `{"query": "..."}`. Поиск по чатам модуля; ответ —
     /// [`crate::model::UiCmd::SearchResults`]. Ядро шлёт при наборе в поиске.
     pub const SEARCH_QUERY: &str = "__search.query";
+    /// payload: `{"account_id": "..."}`. Сменить активный аккаунт профиля;
+    /// применяется ко всем чатам профиля.
+    pub const ACCOUNT_SWITCH: &str = "__account.switch";
+    /// payload: `{"button": "<ComposerButton.id>", "chat_id": "..."}`.
+    /// Нажатие кнопки модуля в поле ввода.
+    pub const COMPOSER_BUTTON: &str = "__composer.button";
     /// payload: `{"<field_id>": "value", ...}`. Сабмит формы входа.
     pub const LOGIN_SUBMIT: &str = "__login.submit";
     /// payload: `{}`. Отмена формы входа.
