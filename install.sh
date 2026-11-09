@@ -3,7 +3,8 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/Fanikalin/MSHH/main/install.sh | sh
 #
-# Скрипт: ставит тулчейн (Arch — нативный `rust` из pacman, остальные — rustup),
+# Скрипт: ставит тулчейн (Arch — нативный `rust` из pacman, Bazzite и другие
+# атомарные Fedora — Homebrew, остальные — rustup),
 # клонирует репозиторий, собирает release, кладёт бинарник в ~/.local/bin/mshh
 # и модули в ~/.local/share/mshh/modules. Повторный запуск = обновление.
 #
@@ -40,6 +41,40 @@ need_pkgs() {
   fi
 }
 
+# Bazzite и другие атомарные Fedora (Silverblue, Bluefin): хост immutable,
+# ставим через предустановленный Homebrew — без rpm-ostree и перезагрузки.
+is_bazzite() {
+  grep -qi '^ID=bazzite' /etc/os-release 2>/dev/null && return 0
+  [ -e /run/ostree-booted ] && grep -qi '^ID_LIKE=.*fedora' /etc/os-release 2>/dev/null
+}
+
+ensure_brew() {
+  if command -v brew >/dev/null 2>&1; then
+    return 0
+  elif [ -x "$HOME/.linuxbrew/bin/brew" ]; then
+    eval "$("$HOME/.linuxbrew/bin/brew" shellenv)"
+  elif [ -x /home/linuxbrew/.linuxbrew/bin/brew ]; then
+    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+  else
+    say "==> Homebrew не найден, ставим"
+    NONINTERACTIVE=1 /bin/bash -c "$(
+      curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh
+    )" || return 1
+    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+  fi
+}
+
+install_toolchain_bazzite() {
+  say "==> Bazzite/атомарная Fedora: ставим тулчейн через Homebrew"
+  ensure_brew || { say "!! Не удалось установить Homebrew"; exit 1; }
+  brew install rust
+  command -v git >/dev/null 2>&1 || brew install git
+  if ! command -v cc >/dev/null 2>&1 && ! command -v gcc >/dev/null 2>&1; then
+    brew install gcc
+  fi
+  command -v cargo >/dev/null 2>&1 || { say "!! cargo недоступен после brew install rust"; exit 1; }
+}
+
 install_toolchain() {
   if command -v pacman >/dev/null 2>&1; then
     say "==> Arch: нативный rust из репозитория"
@@ -62,10 +97,14 @@ install_toolchain() {
   fi
 }
 
-if ! command -v cargo >/dev/null 2>&1; then
-  install_toolchain
+if is_bazzite; then
+  install_toolchain_bazzite
+else
+  if ! command -v cargo >/dev/null 2>&1; then
+    install_toolchain
+  fi
+  command -v git >/dev/null 2>&1 || need_pkgs git
 fi
-command -v git >/dev/null 2>&1 || need_pkgs git
 
 say "==> Исходники: $SRC_DIR"
 if [ -d "$SRC_DIR/.git" ]; then
