@@ -73,4 +73,5 @@
   `UiCmd::SetChatHeader`, `UiCmd::SetComposerButtons`,
   actions: `__search.query`, `__account.switch`, `__composer.button`.
 - ✅ Ядро и echo на v3. Модули в ../MSHH-modules переводятся на v3 и
-  пересобираются (субагенты; готово: irc, max, reticulum).
+  пересобираются (субагенты; готово: irc, max, reticulum, telegram —
+  в telegram поиск серверный: `contacts.search`).

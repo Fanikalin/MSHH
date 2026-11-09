@@ -100,6 +100,7 @@ fn main() -> std::process::ExitCode {
 
     let mut app = App::new(profiles.iter().filter(|p| p.enabled).count(), runtime.libs().len());
     app.profiles = profiles;
+    app.groups = store.groups().unwrap_or_default();
     app.module_schemas = runtime
         .libs()
         .iter()
@@ -388,6 +389,63 @@ fn handle_core_cmd(
         }
         CoreCmd::InstallUrl { url } => {
             spawn_install(install, url, None);
+        }
+        CoreCmd::AddGroup { name } => match store.group_add(&name) {
+            Ok(g) => {
+                app.groups.push(g);
+                app.on_groups_changed();
+            }
+            Err(e) => app.toast_now(format!("не удалось создать группу: {e}")),
+        },
+        CoreCmd::DeleteGroup { id } => {
+            if let Err(e) = store.group_delete(&id) {
+                app.toast_now(format!("{e}"));
+                return;
+            }
+            app.groups.retain(|g| g.id != id);
+            if app.active_group.as_deref() == Some(&id) {
+                app.active_group = None;
+            }
+            app.on_groups_changed();
+            app.toast_now("группа удалена");
+        }
+        CoreCmd::AddGroupRule { group, rule } => {
+            if let Err(e) = store.group_rule_add(&group, &rule) {
+                app.toast_now(format!("{e}"));
+                return;
+            }
+            if let Some(g) = app.groups.iter_mut().find(|g| g.id == group) {
+                if !g.rules.contains(&rule) {
+                    g.rules.push(rule);
+                }
+            }
+            app.on_groups_changed();
+        }
+        CoreCmd::RemoveGroupRule { group, rule } => {
+            if let Err(e) = store.group_rule_remove(&group, &rule) {
+                app.toast_now(format!("{e}"));
+                return;
+            }
+            if let Some(g) = app.groups.iter_mut().find(|g| g.id == group) {
+                g.rules.retain(|r| r != &rule);
+            }
+            app.on_groups_changed();
+        }
+        CoreCmd::SearchQuery { query } => {
+            use mshh_module_api::model::actions;
+            for p in &app.profiles {
+                if !p.enabled {
+                    continue;
+                }
+                runtime.send_to_profile(
+                    &p.id,
+                    Ev::UiAction {
+                        action: actions::SEARCH_QUERY.into(),
+                        chat_id: None,
+                        payload: serde_json::json!({ "query": query }),
+                    },
+                );
+            }
         }
     }
 }

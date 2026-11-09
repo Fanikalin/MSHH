@@ -10,19 +10,21 @@ use crossterm::event::{
     Event as TermEvent, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
 };
 use mshh_module_api::model::{
-    actions, AccountView, ChatId, ChatView, Ev, FieldDef, MessageView, ModuleId, UiCmd,
+    actions, AccountView, Avatar, ChatId, ChatKind, ChatView, ComposerButton, Ev, FieldDef,
+    MessageView, ModuleId, UiCmd,
 };
 use ratatui::layout::Rect;
 use serde_json::{json, Map as JsonMap};
 
 use crate::ratings::{RatingColor, RatingView};
-use crate::store::Profile;
+use crate::store::{Group, GroupRule, Profile};
 
 pub const TOAST_TTL: Duration = Duration::from_secs(3);
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Focus {
     Chats,
+    Search,
     Composer,
 }
 
@@ -55,9 +57,16 @@ pub enum CoreCmd {
     InstallBase { idx: usize },
     /// Установить модуль из git-ссылки (docs/MODULE-REPO.md).
     InstallUrl { url: String },
+    /// Группы чатов.
+    AddGroup { name: String },
+    DeleteGroup { id: String },
+    AddGroupRule { group: String, rule: GroupRule },
+    RemoveGroupRule { group: String, rule: GroupRule },
+    /// Разослать поисковый запрос всем включённым профилям.
+    SearchQuery { query: String },
 }
 
-fn truncate_id(s: &str) -> String {
+pub(crate) fn truncate_id(s: &str) -> String {
     if s.chars().count() <= 16 {
         s.to_string()
     } else {
@@ -117,6 +126,19 @@ enum SettingsScreen {
     Main,
     AddModule,
     Profile,
+    Groups,
+    /// Правила группы; payload — индекс в `self.groups`.
+    GroupRules(usize),
+    /// Выбор типа правила; payload — индекс группы.
+    RuleKind(usize),
+    /// Выбор типа чата для правила «type»; payload — индекс группы.
+    RuleTypePick(usize),
+    /// Выбор модуля для правила «module».
+    RuleModulePick(usize),
+    /// Выбор уровня доверия для правила «trust».
+    RuleTrustPick(usize),
+    /// Выбор отдельного чата для правила «chat».
+    RuleChatPick(usize),
 }
 
 /// Строка экрана настроек: и семантика для activate(), и готовый текст для рендера.
@@ -133,12 +155,78 @@ pub(crate) enum SettingsRow {
     ModuleSetting { field: usize, label: String, value: String, secret: bool },
     Restart,
     Delete { armed: bool },
+    /// Открыть меню модулей и доверия (то же, что клавиша `m`).
+    OpenModules,
+    /// Группа в списке групп.
+    Group { idx: usize, text: String },
+    AddGroup,
+    /// Правило группы; Enter — удалить.
+    Rule { group_idx: usize, rule_idx: usize, text: String },
+    AddRule { group_idx: usize },
+    DeleteGroup { armed: bool },
 }
 
 enum InputTarget {
     RenameProfile(String),
     NewProfileName(String),
     SettingValue { profile: String, field: usize },
+    NewGroupName,
+}
+
+/// Результат поиска одного профиля; `chat.id` — БЕЗ префикса профиля.
+#[derive(Clone, Debug)]
+pub struct SearchHit {
+    pub chat: ChatView,
+    pub profile: String,
+}
+
+/// Строка сайдбара: либо чат из списка, либо результат поиска.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum SideRow {
+    /// Индекс в `self.chats`.
+    Chat(usize),
+    /// Индекс в `self.search_results`.
+    Hit(usize),
+}
+
+/// Типизированное правило группы (в хранилище — пара kind/value).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Rule {
+    Kind(ChatKind),
+    Module(String),
+    Trust(RatingColor),
+    Chat(String),
+}
+
+impl Rule {
+    pub fn to_kv(&self) -> GroupRule {
+        match self {
+            Rule::Kind(k) => GroupRule { kind: "type".into(), value: k.as_str().into() },
+            Rule::Module(m) => GroupRule { kind: "module".into(), value: m.clone() },
+            Rule::Trust(c) => GroupRule { kind: "trust".into(), value: c.key().into() },
+            Rule::Chat(key) => GroupRule { kind: "chat".into(), value: key.clone() },
+        }
+    }
+
+    pub fn from_kv(r: &GroupRule) -> Option<Rule> {
+        match r.kind.as_str() {
+            "type" => ChatKind::parse(&r.value).map(Rule::Kind),
+            "module" => Some(Rule::Module(r.value.clone())),
+            "trust" => RatingColor::parse(&r.value).map(Rule::Trust),
+            "chat" => Some(Rule::Chat(r.value.clone())),
+            _ => None,
+        }
+    }
+
+    /// Человекочитаемая метка; `module_name` — id → имя модуля.
+    pub fn label(&self, module_name: &dyn Fn(&str) -> String) -> String {
+        match self {
+            Rule::Kind(k) => format!("тип: {}", k.label()),
+            Rule::Module(m) => format!("модуль: {}", module_name(m)),
+            Rule::Trust(c) => format!("доверие: {}", c.label()),
+            Rule::Chat(key) => format!("чат: {}", truncate_id(key)),
+        }
+    }
 }
 
 pub(crate) struct SettingsInput {
@@ -233,6 +321,22 @@ pub struct App {
     pub core_cmds: Vec<CoreCmd>,
     /// Последняя известная площадь терминала (хит-тест мыши).
     pub area: Rect,
+
+    /// Группы чатов (фильтры сайдбара).
+    pub groups: Vec<Group>,
+    /// Активная группа (None = «Все»).
+    pub active_group: Option<String>,
+    /// Текущая строка поиска (сайдбар, над чатами).
+    pub search: String,
+    /// Ответы модулей на поиск; `chat.id` без префикса профиля.
+    pub search_results: Vec<SearchHit>,
+    /// Строка профиля собеседника над чатом (модульная); ключ — внутренний.
+    pub chat_header: HashMap<ChatId, (String, Option<Avatar>)>,
+    /// Кнопки композера по профилям.
+    pub composer_buttons: HashMap<String, Vec<ComposerButton>>,
+    /// Пикер аккаунта над композером.
+    pub account_picker: bool,
+    account_picker_sel: usize,
 }
 
 impl App {
@@ -241,6 +345,13 @@ impl App {
             SettingsScreen::Main => "main",
             SettingsScreen::AddModule => "add",
             SettingsScreen::Profile => "profile",
+            SettingsScreen::Groups => "groups",
+            SettingsScreen::GroupRules(_) => "group-rules",
+            SettingsScreen::RuleKind(_) => "rule-kind",
+            SettingsScreen::RuleTypePick(_) => "rule-type",
+            SettingsScreen::RuleModulePick(_) => "rule-module",
+            SettingsScreen::RuleTrustPick(_) => "rule-trust",
+            SettingsScreen::RuleChatPick(_) => "rule-chat",
         }
     }
 
@@ -285,8 +396,15 @@ impl App {
             self.rebuild_settings_rows();
         }
     }
+
+    /// Перестроить строки настроек (после изменения групп из main).
+    pub fn on_groups_changed(&mut self) {
+        if self.settings_open {
+            self.rebuild_settings_rows();
+        }
+    }
 }
-fn ckey(profile: &str, chat: &str) -> String {
+pub(crate) fn ckey(profile: &str, chat: &str) -> String {
     format!("{profile}:{chat}")
 }
 
@@ -338,6 +456,14 @@ impl App {
             delete_armed: false,
             core_cmds: Vec::new(),
             area: Rect::new(0, 0, 1, 1),
+            groups: Vec::new(),
+            active_group: None,
+            search: String::new(),
+            search_results: Vec::new(),
+            chat_header: HashMap::new(),
+            composer_buttons: HashMap::new(),
+            account_picker: false,
+            account_picker_sel: 0,
             profile_count,
         }
     }
@@ -398,6 +524,26 @@ impl App {
             UiCmd::SetPresence { chat_id, text } => {
                 self.presence.insert(ckey(profile, chat_id), std::mem::take(text));
             }
+            UiCmd::SearchResults { query, chats } => {
+                // Устаревший ответ: запрос уже изменился.
+                if query != self.search.trim() {
+                    return;
+                }
+                self.search_results.retain(|h| h.profile != profile);
+                for c in chats.drain(..) {
+                    self.search_results.push(SearchHit { chat: c, profile: profile.to_string() });
+                }
+                return;
+            }
+            UiCmd::SetChatHeader { chat_id, text, avatar } => {
+                self.chat_header
+                    .insert(ckey(profile, chat_id), (std::mem::take(text), avatar.take()));
+                return;
+            }
+            UiCmd::SetComposerButtons(v) => {
+                self.composer_buttons.insert(profile.to_string(), std::mem::take(v));
+                return;
+            }
             _ => {}
         }
         match cmd {
@@ -437,6 +583,14 @@ impl App {
                         self.on_modules_click(m.column, m.row);
                         return None;
                     }
+                    if self.account_picker {
+                        self.on_account_picker_click(m.column, m.row);
+                        return None;
+                    }
+                    if self.login.is_none() {
+                        return self.on_main_click(m.column, m.row);
+                    }
+                    return None;
                 }
                 match m.kind {
                     MouseEventKind::ScrollUp => {
@@ -483,6 +637,9 @@ impl App {
         if self.modules_open {
             return self.on_key_modules(code);
         }
+        if self.account_picker {
+            return self.on_key_account_picker(code);
+        }
         if self.settings_open {
             return self.on_key_settings(code);
         }
@@ -502,15 +659,44 @@ impl App {
         match self.focus {
             Focus::Chats => match code {
                 KeyCode::Up => {
-                    let idx = self.selected_index().map(|i| i.saturating_sub(1)).unwrap_or(0);
-                    self.select_chat(idx)
+                    let idx = self.selected_position().map(|i| i.saturating_sub(1)).unwrap_or(0);
+                    self.select_visible(idx)
                 }
                 KeyCode::Down => {
-                    let idx = self.selected_index().map(|i| i + 1).unwrap_or(0);
-                    self.select_chat(idx)
+                    let idx = self.selected_position().map(|i| i + 1).unwrap_or(0);
+                    self.select_visible(idx)
                 }
-                KeyCode::Enter | KeyCode::Tab => {
+                KeyCode::Enter => {
                     self.focus = Focus::Composer;
+                    None
+                }
+                KeyCode::Tab => {
+                    self.focus = Focus::Search;
+                    None
+                }
+                _ => None,
+            },
+            Focus::Search => match code {
+                KeyCode::Esc => {
+                    self.search.clear();
+                    self.search_results.clear();
+                    self.focus = Focus::Chats;
+                    None
+                }
+                KeyCode::Enter => self.open_first_search_row(),
+                KeyCode::Tab => {
+                    self.focus = Focus::Composer;
+                    None
+                }
+                KeyCode::Backspace => {
+                    if self.search.pop().is_some() {
+                        self.search_changed();
+                    }
+                    None
+                }
+                KeyCode::Char(c) if !mods.contains(KeyModifiers::CONTROL) => {
+                    self.search.push(c);
+                    self.search_changed();
                     None
                 }
                 _ => None,
@@ -567,6 +753,16 @@ impl App {
                 if !self.available_modules.is_empty() {
                     rows.push(SettingsRow::AddProfile);
                 }
+                rows.push(SettingsRow::Header("Группы чатов".into()));
+                for (i, g) in self.groups.iter().enumerate() {
+                    rows.push(SettingsRow::Group {
+                        idx: i,
+                        text: format!("{} (правил: {})", g.name, g.rules.len()),
+                    });
+                }
+                rows.push(SettingsRow::AddGroup);
+                rows.push(SettingsRow::Header("Модули".into()));
+                rows.push(SettingsRow::OpenModules);
                 rows
             }
             SettingsScreen::AddModule => {
@@ -608,6 +804,84 @@ impl App {
                 rows.push(SettingsRow::Header("Действия".into()));
                 rows.push(SettingsRow::Restart);
                 rows.push(SettingsRow::Delete { armed: self.delete_armed });
+                rows
+            }
+            SettingsScreen::Groups => {
+                let mut rows = vec![SettingsRow::Back];
+                for (i, g) in self.groups.iter().enumerate() {
+                    rows.push(SettingsRow::Group {
+                        idx: i,
+                        text: format!("{} (правил: {})", g.name, g.rules.len()),
+                    });
+                }
+                rows.push(SettingsRow::AddGroup);
+                rows
+            }
+            SettingsScreen::GroupRules(gi) => {
+                let Some(g) = self.groups.get(gi) else { return };
+                let module_name = |m: &str| {
+                    self.available_modules
+                        .iter()
+                        .find(|(id, _)| id == m)
+                        .map(|(_, n)| n.clone())
+                        .unwrap_or_else(|| m.to_string())
+                };
+                let mut rows = vec![
+                    SettingsRow::Back,
+                    SettingsRow::Header(format!("Правила «{}» (Enter по правилу — удалить)", g.name)),
+                ];
+                for (ri, r) in g.rules.iter().enumerate() {
+                    let text = Rule::from_kv(r)
+                        .map(|rule| rule.label(&module_name))
+                        .unwrap_or_else(|| format!("{}:{}", r.kind, r.value));
+                    rows.push(SettingsRow::Rule { group_idx: gi, rule_idx: ri, text });
+                }
+                rows.push(SettingsRow::AddRule { group_idx: gi });
+                rows.push(SettingsRow::DeleteGroup { armed: self.delete_armed });
+                rows
+            }
+            SettingsScreen::RuleKind(_gi) => {
+                let mut rows = vec![SettingsRow::Back];
+                for (i, t) in ["По типу чата", "По модулю", "По доверию", "Отдельный чат"]
+                    .iter()
+                    .enumerate()
+                {
+                    rows.push(SettingsRow::ModulePick { idx: i, text: t.to_string() });
+                }
+                rows
+            }
+            SettingsScreen::RuleTypePick(_gi) => {
+                let mut rows = vec![SettingsRow::Back];
+                for (i, t) in
+                    [ChatKind::Bot, ChatKind::Channel, ChatKind::Group, ChatKind::Person]
+                        .iter()
+                        .enumerate()
+                {
+                    rows.push(SettingsRow::ModulePick { idx: i, text: t.label().to_string() });
+                }
+                rows
+            }
+            SettingsScreen::RuleTrustPick(_gi) => {
+                let mut rows = vec![SettingsRow::Back];
+                for (i, t) in
+                    [RatingColor::Green, RatingColor::Yellow, RatingColor::Red].iter().enumerate()
+                {
+                    rows.push(SettingsRow::ModulePick { idx: i, text: t.label().to_string() });
+                }
+                rows
+            }
+            SettingsScreen::RuleModulePick(_gi) => {
+                let mut rows = vec![SettingsRow::Back];
+                for (i, (id, name)) in self.available_modules.iter().enumerate() {
+                    rows.push(SettingsRow::ModulePick { idx: i, text: format!("{id} — {name}") });
+                }
+                rows
+            }
+            SettingsScreen::RuleChatPick(_gi) => {
+                let mut rows = vec![SettingsRow::Back];
+                for (i, c) in self.chats.iter().enumerate() {
+                    rows.push(SettingsRow::ModulePick { idx: i, text: truncate_id(&c.title) });
+                }
                 rows
             }
         };
@@ -706,20 +980,128 @@ impl App {
                 self.settings_sel = 0;
                 self.rebuild_settings_rows();
             }
-            SettingsRow::ModulePick { idx, .. } => {
-                if let Some((module, _)) = self.available_modules.get(idx).cloned() {
-                    self.settings_input = Some(SettingsInput {
-                        label: "Имя профиля".into(),
-                        buffer: String::new(),
-                        target: InputTarget::NewProfileName(module),
-                    });
-                }
+            SettingsRow::OpenModules => {
+                // То же меню, что открывается клавишей `m`.
+                self.settings_open = false;
+                self.open_modules();
             }
-            SettingsRow::Back => {
-                self.settings_screen = SettingsScreen::Main;
+            SettingsRow::Group { idx, .. } => {
+                self.settings_screen = SettingsScreen::GroupRules(idx);
                 self.settings_sel = 0;
                 self.delete_armed = false;
                 self.rebuild_settings_rows();
+            }
+            SettingsRow::AddGroup => {
+                self.settings_input = Some(SettingsInput {
+                    label: "Название группы".into(),
+                    buffer: String::new(),
+                    target: InputTarget::NewGroupName,
+                });
+            }
+            SettingsRow::Rule { group_idx, rule_idx, .. } => {
+                let Some(g) = self.groups.get(group_idx) else { return };
+                let Some(rule) = g.rules.get(rule_idx).cloned() else { return };
+                self.core_cmds
+                    .push(CoreCmd::RemoveGroupRule { group: g.id.clone(), rule });
+            }
+            SettingsRow::AddRule { group_idx } => {
+                self.settings_screen = SettingsScreen::RuleKind(group_idx);
+                self.settings_sel = 0;
+                self.rebuild_settings_rows();
+            }
+            SettingsRow::DeleteGroup { .. } => {
+                if !self.delete_armed {
+                    self.delete_armed = true;
+                    self.rebuild_settings_rows();
+                    return;
+                }
+                let gi = match self.settings_screen {
+                    SettingsScreen::GroupRules(gi) => gi,
+                    _ => return,
+                };
+                if let Some(g) = self.groups.get(gi) {
+                    self.core_cmds.push(CoreCmd::DeleteGroup { id: g.id.clone() });
+                }
+                self.settings_screen = SettingsScreen::Groups;
+                self.delete_armed = false;
+                self.settings_sel = 0;
+                self.rebuild_settings_rows();
+            }
+            SettingsRow::ModulePick { idx, .. } => match self.settings_screen {
+                SettingsScreen::AddModule => {
+                    if let Some((module, _)) = self.available_modules.get(idx).cloned() {
+                        self.settings_input = Some(SettingsInput {
+                            label: "Имя профиля".into(),
+                            buffer: String::new(),
+                            target: InputTarget::NewProfileName(module),
+                        });
+                    }
+                }
+                SettingsScreen::RuleKind(gi) => {
+                    let next = match idx {
+                        0 => Some(SettingsScreen::RuleTypePick(gi)),
+                        1 => Some(SettingsScreen::RuleModulePick(gi)),
+                        2 => Some(SettingsScreen::RuleTrustPick(gi)),
+                        3 => Some(SettingsScreen::RuleChatPick(gi)),
+                        _ => None,
+                    };
+                    if let Some(s) = next {
+                        self.settings_screen = s;
+                        self.settings_sel = 0;
+                        self.rebuild_settings_rows();
+                    }
+                }
+                SettingsScreen::RuleTypePick(gi) => {
+                    let kinds = [ChatKind::Bot, ChatKind::Channel, ChatKind::Group, ChatKind::Person];
+                    if let Some(k) = kinds.get(idx) {
+                        self.add_rule(gi, Rule::Kind(*k));
+                    }
+                }
+                SettingsScreen::RuleTrustPick(gi) => {
+                    let colors = [RatingColor::Green, RatingColor::Yellow, RatingColor::Red];
+                    if let Some(c) = colors.get(idx) {
+                        self.add_rule(gi, Rule::Trust(*c));
+                    }
+                }
+                SettingsScreen::RuleModulePick(gi) => {
+                    if let Some((module, _)) = self.available_modules.get(idx).cloned() {
+                        self.add_rule(gi, Rule::Module(module));
+                    }
+                }
+                SettingsScreen::RuleChatPick(gi) => {
+                    if let Some(c) = self.chats.get(idx) {
+                        self.add_rule(gi, Rule::Chat(c.id.clone()));
+                    }
+                }
+                _ => {}
+            }
+            SettingsRow::Back => match self.settings_screen {
+                SettingsScreen::RuleKind(gi) => {
+                    self.settings_screen = SettingsScreen::GroupRules(gi);
+                    self.settings_sel = 0;
+                    self.delete_armed = false;
+                    self.rebuild_settings_rows();
+                }
+                SettingsScreen::GroupRules(_) => {
+                    self.settings_screen = SettingsScreen::Groups;
+                    self.settings_sel = 0;
+                    self.delete_armed = false;
+                    self.rebuild_settings_rows();
+                }
+                SettingsScreen::RuleTypePick(gi)
+                | SettingsScreen::RuleModulePick(gi)
+                | SettingsScreen::RuleTrustPick(gi)
+                | SettingsScreen::RuleChatPick(gi) => {
+                    self.settings_screen = SettingsScreen::RuleKind(gi);
+                    self.settings_sel = 0;
+                    self.rebuild_settings_rows();
+                }
+                _ => {
+                    self.settings_screen = SettingsScreen::Main;
+                    self.settings_sel = 0;
+                    self.delete_armed = false;
+                    self.rebuild_settings_rows();
+                }
             }
             SettingsRow::Rename => {
                 if let Some(p) = self.profiles.get(self.settings_profile_idx) {
@@ -773,6 +1155,16 @@ impl App {
         }
     }
 
+    /// Добавить правило группе и вернуться к списку правил.
+    fn add_rule(&mut self, group_idx: usize, rule: Rule) {
+        let Some(g) = self.groups.get(group_idx) else { return };
+        let kv = rule.to_kv();
+        self.core_cmds.push(CoreCmd::AddGroupRule { group: g.id.clone(), rule: kv });
+        self.settings_screen = SettingsScreen::GroupRules(group_idx);
+        self.settings_sel = 0;
+        self.rebuild_settings_rows();
+    }
+
     fn commit_settings_input(&mut self, input: SettingsInput) {
         match input.target {
             InputTarget::RenameProfile(pid) => {
@@ -789,6 +1181,14 @@ impl App {
                     self.toast_now(format!("профиль «{name}» создаётся…"));
                 }
                 self.settings_screen = SettingsScreen::Main;
+            }
+            InputTarget::NewGroupName => {
+                let name = input.buffer.trim().to_string();
+                if !name.is_empty() {
+                    self.core_cmds.push(CoreCmd::AddGroup { name: name.clone() });
+                    self.toast_now(format!("группа «{name}» создаётся…"));
+                }
+                self.settings_screen = SettingsScreen::Groups;
             }
             InputTarget::SettingValue { profile, field } => {
                 let schema = self
@@ -1065,19 +1465,97 @@ impl App {
         Some(PendingAction { profile: module, ev: out })
     }
 
-    fn selected_index(&self) -> Option<usize> {
-        let sel = self.selected.as_ref()?;
-        self.chats.iter().position(|c| &c.id == sel)
+    // ---------- сайдбар: группы и поиск ----------
+
+    /// Типизированные правила активной группы применяются к чату (ИЛИ).
+    fn group_allows(&self, chat: &ChatView) -> bool {
+        let Some(id) = self.active_group.as_ref() else { return true };
+        let Some(g) = self.groups.iter().find(|g| &g.id == id) else { return true };
+        if g.rules.is_empty() {
+            return true;
+        }
+        let owner = self.chat_owner.get(&chat.id).map(String::as_str).unwrap_or("");
+        let module = self
+            .profiles
+            .iter()
+            .find(|p| p.id == owner)
+            .map(|p| p.module.as_str())
+            .unwrap_or("");
+        let trust = self
+            .trust
+            .iter()
+            .find(|t| t.module_id == module)
+            .map(|t| t.color);
+        g.rules.iter().any(|r| match Rule::from_kv(r) {
+            Some(Rule::Kind(k)) => chat.kind == k,
+            Some(Rule::Module(m)) => module == m,
+            Some(Rule::Trust(c)) => trust == Some(c),
+            Some(Rule::Chat(key)) => chat.id == key,
+            None => false,
+        })
     }
 
-    fn select_chat(&mut self, idx: usize) -> Option<PendingAction> {
-        if idx >= self.chats.len() {
-            return None;
+    /// Строки сайдбара: поиск (локальные совпадения + ответы модулей)
+    /// или чаты, отфильтрованные активной группой.
+    pub(crate) fn sidebar_rows(&self) -> Vec<SideRow> {
+        let query = self.search.trim();
+        if !query.is_empty() {
+            let q = query.to_lowercase();
+            let mut rows: Vec<SideRow> = Vec::new();
+            let mut seen: Vec<String> = Vec::new();
+            for (i, c) in self.chats.iter().enumerate() {
+                let hit = c.title.to_lowercase().contains(&q)
+                    || c.id.to_lowercase().contains(&q);
+                if hit {
+                    seen.push(c.id.clone());
+                    rows.push(SideRow::Chat(i));
+                }
+            }
+            for (i, h) in self.search_results.iter().enumerate() {
+                let key = ckey(&h.profile, &h.chat.id);
+                if !seen.contains(&key) {
+                    rows.push(SideRow::Hit(i));
+                }
+            }
+            return rows;
         }
+        self.chats
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| self.group_allows(c))
+            .map(|(i, _)| SideRow::Chat(i))
+            .collect()
+    }
+
+    /// Индексы чатов (без результатов поиска) — для клавиатурной навигации.
+    fn chat_rows(&self) -> Vec<usize> {
+        self.sidebar_rows()
+            .into_iter()
+            .filter_map(|r| match r {
+                SideRow::Chat(i) => Some(i),
+                SideRow::Hit(_) => None,
+            })
+            .collect()
+    }
+
+    /// Позиция выбранного чата среди видимых строк.
+    fn selected_position(&self) -> Option<usize> {
+        let sel = self.selected.as_ref()?;
+        self.chat_rows().iter().position(|i| self.chats[*i].id == *sel)
+    }
+
+    /// Выбор видимого чата по позиции в отфильтрованном списке.
+    fn select_visible(&mut self, pos: usize) -> Option<PendingAction> {
+        let idx = *self.chat_rows().get(pos)?;
         let chat = self.chats[idx].clone();
+        self.select_chat_view(chat)
+    }
+
+    /// Выбрать чат и попросить профиль его открыть.
+    fn select_chat_view(&mut self, chat: ChatView) -> Option<PendingAction> {
         self.selected = Some(chat.id.clone());
         self.scroll_from_end = 0;
-        if let Some(slot) = self.chats.get_mut(idx) {
+        if let Some(slot) = self.chats.iter_mut().find(|c| c.id == chat.id) {
             slot.unread = 0;
         }
         let (profile, raw_chat) = split_ckey(&chat.id);
@@ -1089,6 +1567,242 @@ impl App {
                 payload: json!({ "chat_id": raw_chat }),
             },
         })
+    }
+
+    /// Открыть чат из результата поиска: модуль получит CHAT_OPEN и
+    /// должен добавить чат через UpsertChat.
+    fn open_hit(&mut self, idx: usize) -> Option<PendingAction> {
+        let hit = self.search_results.get(idx)?.clone();
+        let key = ckey(&hit.profile, &hit.chat.id);
+        self.selected = Some(key.clone());
+        self.chat_owner.insert(key, hit.profile.clone());
+        self.scroll_from_end = 0;
+        let raw = hit.chat.id.clone();
+        Some(PendingAction {
+            profile: hit.profile,
+            ev: Ev::UiAction {
+                action: actions::CHAT_OPEN.into(),
+                chat_id: Some(raw.clone()),
+                payload: json!({ "chat_id": raw }),
+            },
+        })
+    }
+
+    /// Запрос изменился: сбросить результаты и разослать профилям.
+    fn search_changed(&mut self) {
+        self.search_results.clear();
+        let query = self.search.trim().to_string();
+        if query.is_empty() {
+            return;
+        }
+        self.core_cmds.push(CoreCmd::SearchQuery { query });
+    }
+
+    /// Enter в поиске: открыть первую строку результатов.
+    fn open_first_search_row(&mut self) -> Option<PendingAction> {
+        let row = *self.sidebar_rows().first()?;
+        let action = match row {
+            SideRow::Chat(i) => self.chats.get(i).cloned().and_then(|c| self.select_chat_view(c)),
+            SideRow::Hit(i) => self.open_hit(i),
+        };
+        if action.is_some() {
+            self.search.clear();
+            self.search_results.clear();
+            self.focus = Focus::Composer;
+        }
+        action
+    }
+
+    /// Клик по сайдбару/правой панели: раскладка из render::main_layout.
+    fn on_main_click(&mut self, col: u16, row: u16) -> Option<PendingAction> {
+        let l = crate::render::main_layout(self.area, self.groups.len(), self.composer_height());
+        let inside = |r: Rect| col >= r.x && col < r.x + r.width && row >= r.y && row < r.y + r.height;
+
+        if inside(l.search) {
+            self.focus = Focus::Search;
+            return None;
+        }
+        if inside(l.settings_btn) {
+            self.open_settings();
+            return None;
+        }
+        if inside(l.groups) {
+            let idx = row.saturating_sub(l.groups.y + 1) as usize;
+            if idx == 0 {
+                self.active_group = None;
+            } else if let Some(g) = self.groups.get(idx - 1) {
+                self.active_group = if self.active_group.as_deref() == Some(&g.id) {
+                    None
+                } else {
+                    Some(g.id.clone())
+                };
+            }
+            return None;
+        }
+        if inside(l.chats) {
+            let idx = row.saturating_sub(l.chats.y + 1) as usize;
+            let rows = self.sidebar_rows();
+            let Some(row) = rows.get(idx).copied() else { return None };
+            return match row {
+                SideRow::Chat(i) => {
+                    self.chats.get(i).cloned().and_then(|c| self.select_chat_view(c))
+                }
+                SideRow::Hit(i) => {
+                    let a = self.open_hit(i);
+                    if a.is_some() {
+                        self.search.clear();
+                        self.search_results.clear();
+                        self.focus = Focus::Composer;
+                    }
+                    a
+                }
+            };
+        }
+
+        if inside(l.account_chip) {
+            self.open_account_picker();
+            return None;
+        }
+        if let Some(btns) = l.composer_buttons {
+            if inside(btns) {
+                let profile = self.selected_chat_profile()?;
+                let idx = col.saturating_sub(btns.x) as usize;
+                if let Some(b) = self
+                    .composer_buttons
+                    .get(&profile)
+                    .and_then(|v| v.get(idx))
+                    .cloned()
+                {
+                    let raw = split_ckey(&self.selected.clone()?).1;
+                    return Some(PendingAction {
+                        profile,
+                        ev: Ev::UiAction {
+                            action: actions::COMPOSER_BUTTON.into(),
+                            chat_id: Some(raw.clone()),
+                            payload: json!({ "button": b.id, "chat_id": raw }),
+                        },
+                    });
+                }
+                return None;
+            }
+        }
+        if inside(l.composer) {
+            self.focus = Focus::Composer;
+            return None;
+        }
+        if inside(l.messages) || inside(l.header) {
+            self.focus = Focus::Chats;
+        }
+        None
+    }
+
+    /// Профиль выбранного чата.
+    fn selected_chat_profile(&self) -> Option<String> {
+        let key = self.selected.as_ref()?;
+        self.chat_owner.get(key).cloned()
+    }
+
+    /// Публичный доступ для рендера.
+    pub(crate) fn selected_chat_profile_pub(&self) -> Option<String> {
+        self.selected_chat_profile()
+    }
+
+    /// id модуля чата (по владельцу-профилю).
+    pub(crate) fn chat_module(&self, key: &str) -> String {
+        self.chat_owner
+            .get(key)
+            .and_then(|p| self.profiles.iter().find(|x| &x.id == p))
+            .map(|p| p.module.clone())
+            .unwrap_or_default()
+    }
+
+    /// Цвет доверия к модулю чата (из каталога рейтингов).
+    pub(crate) fn chat_trust(&self, module: &str) -> Option<RatingColor> {
+        self.trust.iter().find(|t| t.module_id == module).map(|t| t.color)
+    }
+
+    /// Активный аккаунт профиля (для кружка в композере).
+    pub(crate) fn active_account(&self, profile: &str) -> Option<&AccountView> {
+        self.accounts.iter().find(|(p, a)| p == profile && a.active).map(|(_, a)| a)
+    }
+
+    /// Высота композера: базовая + строка кнопок модуля.
+    pub(crate) fn composer_height(&self) -> u16 {
+        let buttons = self
+            .selected_chat_profile()
+            .and_then(|p| self.composer_buttons.get(&p))
+            .map(|v| !v.is_empty())
+            .unwrap_or(false);
+        3 + u16::from(buttons)
+    }
+
+    // ---------- пикер аккаунта ----------
+
+    fn open_account_picker(&mut self) {
+        if self.account_picker_open_accounts().is_empty() {
+            self.toast_now("у профиля нет других аккаунтов");
+            return;
+        }
+        self.account_picker = true;
+        self.account_picker_sel = 0;
+    }
+
+    /// Аккаунты профиля выбранного чата.
+    pub(crate) fn account_picker_open_accounts(&self) -> Vec<&AccountView> {
+        let Some(profile) = self.selected_chat_profile() else { return Vec::new() };
+        self.accounts
+            .iter()
+            .filter(|(p, _)| *p == profile)
+            .map(|(_, a)| a)
+            .collect()
+    }
+
+    pub(crate) fn account_picker_sel(&self) -> usize {
+        self.account_picker_sel
+    }
+
+    fn on_key_account_picker(&mut self, code: KeyCode) -> Option<PendingAction> {
+        let n = self.account_picker_open_accounts().len();
+        match code {
+            KeyCode::Esc => self.account_picker = false,
+            KeyCode::Up => self.account_picker_sel = self.account_picker_sel.saturating_sub(1),
+            KeyCode::Down => {
+                self.account_picker_sel = (self.account_picker_sel + 1).min(n.saturating_sub(1));
+            }
+            KeyCode::Enter => {
+                let profile = self.selected_chat_profile()?;
+                let account = self
+                    .account_picker_open_accounts()
+                    .get(self.account_picker_sel)?
+                    .id
+                    .clone();
+                self.account_picker = false;
+                return Some(PendingAction {
+                    profile,
+                    ev: Ev::UiAction {
+                        action: actions::ACCOUNT_SWITCH.into(),
+                        chat_id: None,
+                        payload: json!({ "account_id": account }),
+                    },
+                });
+            }
+            _ => {}
+        }
+        None
+    }
+
+    fn on_account_picker_click(&mut self, col: u16, row: u16) {
+        let rect = crate::render::account_picker_area(self.area);
+        let inside = col >= rect.x && col < rect.x + rect.width && row >= rect.y && row < rect.y + rect.height;
+        if !inside {
+            self.account_picker = false;
+            return;
+        }
+        let idx = row.saturating_sub(rect.y + 1) as usize;
+        let n = self.account_picker_open_accounts().len();
+        if idx < n {
+            self.account_picker_sel = idx;
+        }
     }
 
     fn send_composer(&mut self) -> Option<PendingAction> {

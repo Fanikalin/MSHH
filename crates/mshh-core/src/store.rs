@@ -126,10 +126,8 @@ impl Store {
             .prepare("SELECT id, name FROM core_groups ORDER BY created ASC, rowid ASC")
             .map_err(|e| e.to_string())?;
         let mut out: Vec<Group> = stmt
-            .query_map([], |r| Group {
-                id: r.get(0)?,
-                name: r.get(1)?,
-                rules: Vec::new(),
+            .query_map([], |r| {
+                Ok(Group { id: r.get(0)?, name: r.get(1)?, rules: Vec::new() })
             })
             .map_err(|e| e.to_string())?
             .collect::<Result<Vec<_>, _>>()
@@ -141,8 +139,11 @@ impl Store {
             .query([])
             .map_err(|e| e.to_string())?;
         while let Some(r) = it.next().map_err(|e| e.to_string())? {
-            let gid: String = r.get(0)?;
-            let rule = GroupRule { kind: r.get(1)?, value: r.get(2)? };
+            let gid: String = r.get(0).map_err(|e| e.to_string())?;
+            let rule = GroupRule {
+                kind: r.get(1).map_err(|e| e.to_string())?,
+                value: r.get(2).map_err(|e| e.to_string())?,
+            };
             if let Some(g) = out.iter_mut().find(|g| g.id == gid) {
                 g.rules.push(rule);
             }
