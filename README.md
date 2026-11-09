@@ -15,6 +15,17 @@
 Дорожная карта: Windows/Android (расширения библиотек уже выбираются по `cfg`),
 GUI-рендерер, сетевые примитивы ядра (ABI v2). См. [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## Установка одной командой
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Fanikalin/MSHH/main/install.sh | sh
+```
+
+Linux. На Arch ставит нативный `rust` из pacman, на остальных дистрибутивах —
+rustup. Собирает release-бинарник, кладёт `~/.local/bin/mshh` и модуль `echo` в
+`~/.local/share/mshh/modules`. Повторный запуск — обновление. Пути можно
+переопределить: `MSHH_INSTALL_DIR`, `MSHH_BIN_DIR`, `MSHH_MODULES_DIR`.
+
 ## Сборка и запуск
 
 ```sh
