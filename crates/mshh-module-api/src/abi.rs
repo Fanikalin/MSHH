@@ -17,7 +17,9 @@ use std::ffi::c_void;
 /// v2: `mshh_module_start(host, profile)`, экспорт `mshh_module_settings`,
 /// событие `Ev::Settings`, `Session::profile()`; разрешены несколько
 /// экземпляров одной библиотеки (профили).
-pub const ABI_VERSION: u32 = 2;
+/// v3: `ChatView::kind` ([`ChatKind`]), `UiCmd::SearchResults` и
+/// `actions::SEARCH_QUERY` — поиск по чатам модуля для строки поиска ядра.
+pub const ABI_VERSION: u32 = 3;
 
 pub mod log_level {
     pub const ERROR: u32 = 0;

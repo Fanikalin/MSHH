@@ -50,6 +50,62 @@ pub enum UiCmd {
     },
     CloseLogin,
     Toast { text: String },
+    /// Ответ на [`actions::SEARCH_QUERY`]: найденные чаты этого профиля.
+    /// `query` — та же строка, что пришла в запросе (ядро отбрасывает
+    /// устаревшие ответы). Идентификаторы чатов — без префикса профиля.
+    SearchResults { query: String, chats: Vec<ChatView> },
+}
+
+/// Тип чата; влияет на фильтры групп и иконки. Модули проставляют сами.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatKind {
+    /// Личная переписка.
+    Person,
+    /// Группа (многопользовательский чат).
+    Group,
+    /// Канал (только чтение).
+    Channel,
+    /// Бот.
+    Bot,
+}
+
+impl Default for ChatKind {
+    fn default() -> Self {
+        ChatKind::Person
+    }
+}
+
+impl ChatKind {
+    /// Человекочитаемая метка для UI.
+    pub fn label(&self) -> &'static str {
+        match self {
+            ChatKind::Person => "люди",
+            ChatKind::Group => "группы",
+            ChatKind::Channel => "каналы",
+            ChatKind::Bot => "боты",
+        }
+    }
+
+    /// Разбор из строки правила группы.
+    pub fn parse(s: &str) -> Option<ChatKind> {
+        match s {
+            "person" => Some(ChatKind::Person),
+            "group" => Some(ChatKind::Group),
+            "channel" => Some(ChatKind::Channel),
+            "bot" => Some(ChatKind::Bot),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ChatKind::Person => "person",
+            ChatKind::Group => "group",
+            ChatKind::Channel => "channel",
+            ChatKind::Bot => "bot",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -65,6 +121,9 @@ pub struct ChatView {
     pub title: String,
     pub subtitle: Option<String>,
     pub unread: u32,
+    /// Тип чата; отсутствующее поле в JSON читается как [`ChatKind::Person`].
+    #[serde(default)]
+    pub kind: ChatKind,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -104,6 +163,9 @@ pub mod actions {
     pub const CHAT_OPEN: &str = "__chat.open";
     /// payload: `{"chat_id": "...", "text": "..."}`. Отправка из композера.
     pub const COMPOSER_SEND: &str = "__composer.send";
+    /// payload: `{"query": "..."}`. Поиск по чатам модуля; ответ —
+    /// [`crate::model::UiCmd::SearchResults`]. Ядро шлёт при наборе в поиске.
+    pub const SEARCH_QUERY: &str = "__search.query";
     /// payload: `{"<field_id>": "value", ...}`. Сабмит формы входа.
     pub const LOGIN_SUBMIT: &str = "__login.submit";
     /// payload: `{}`. Отмена формы входа.

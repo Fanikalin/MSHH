@@ -8,4 +8,6 @@ pub enum Event {
     Input(TermEvent),
     /// Команда отображения от экземпляра модуля (профиль).
     Ui { profile: String, cmd: UiCmd },
+    /// Установка модуля: прогресс и финальный результат.
+    Install { message: String, result: Option<Result<String, String>> },
 }

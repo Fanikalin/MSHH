@@ -21,6 +21,7 @@ libc.workspace = true
 crossbeam-channel.workspace = true
 libloading.workspace = true
 rusqlite.workspace = true
+toml.workspace = true
 ratatui.workspace = true
 crossterm.workspace = true
 chrono.workspace = true

@@ -15,7 +15,7 @@ use mshh_module_api::model::{
 use ratatui::layout::Rect;
 use serde_json::{json, Map as JsonMap};
 
-use crate::ratings::RatingView;
+use crate::ratings::{RatingColor, RatingView};
 use crate::store::Profile;
 
 pub const TOAST_TTL: Duration = Duration::from_secs(3);
@@ -51,6 +51,18 @@ pub enum CoreCmd {
     DeleteProfile { profile: String },
     SaveSetting { profile: String, key: String, value: String },
     RestartProfile { profile: String },
+    /// Установить базовый модуль по индексу каталога.
+    InstallBase { idx: usize },
+    /// Установить модуль из git-ссылки (docs/MODULE-REPO.md).
+    InstallUrl { url: String },
+}
+
+fn truncate_id(s: &str) -> String {
+    if s.chars().count() <= 16 {
+        s.to_string()
+    } else {
+        s.chars().take(15).collect::<String>() + "…"
+    }
 }
 
 /// Настройки отображения ядра.
@@ -135,6 +147,36 @@ pub(crate) struct SettingsInput {
     target: InputTarget,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MgrScreen {
+    List,
+    Add,
+}
+
+/// Установленный модуль для менеджера.
+#[derive(Clone, Debug)]
+pub struct InstalledView {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub profiles: usize,
+    /// Цвет рейтинга (вшитый каталог или «неизвестный»).
+    pub color: RatingColor,
+    /// Индекс в `trust` для окна фактов; None, если записи нет.
+    pub rating_idx: Option<usize>,
+}
+
+/// Строка менеджера модулей.
+pub(crate) enum MgrRow {
+    Header(String),
+    Installed { idx: usize, text: String, color: RatingColor, profiles: usize },
+    Add,
+    Base { base_idx: usize, text: String, installed: bool },
+    UrlInput,
+    Busy,
+    Back,
+}
+
 pub struct App {
     /// Аккаунты по профилям: (profile, view).
     pub accounts: Vec<(String, AccountView)>,
@@ -157,11 +199,18 @@ pub struct App {
 
     /// Вшитый каталог доверия + записи о загруженных модулях.
     pub trust: Vec<RatingView>,
-    pub trust_open: bool,
-    pub trust_sel: usize,
+    /// Менеджер модулей (клавиша m).
+    pub modules_open: bool,
+    pub modules_sel: usize,
     /// Открытое окно фактов: индекс в `trust`.
     pub trust_facts: Option<usize>,
     pub trust_scroll: u32,
+    modules_screen: MgrScreen,
+    mgr_rows: Vec<MgrRow>,
+    mgr_url_input: Option<String>,
+    pub mgr_busy: bool,
+    /// Установленные модули (заполняет main из рантайма).
+    pub installed_modules: Vec<InstalledView>,
 
     /// Каталог профилей.
     pub profiles: Vec<Profile>,
@@ -211,6 +260,25 @@ impl App {
         self.settings_input.as_ref()
     }
 
+    pub(crate) fn modules_screen_name(&self) -> &'static str {
+        match self.modules_screen {
+            MgrScreen::List => "list",
+            MgrScreen::Add => "add",
+        }
+    }
+
+    pub(crate) fn modules_sel(&self) -> usize {
+        self.modules_sel
+    }
+
+    pub(crate) fn mgr_rows_ref(&self) -> &[MgrRow] {
+        &self.mgr_rows
+    }
+
+    pub(crate) fn mgr_url_ref(&self) -> Option<&String> {
+        self.mgr_url_input.as_ref()
+    }
+
     /// Перестроить строки настроек (после изменения профилей из main).
     pub fn on_profiles_changed(&mut self) {
         if self.settings_open {
@@ -246,10 +314,15 @@ impl App {
             module_count,
             quit: false,
             trust: Vec::new(),
-            trust_open: false,
-            trust_sel: 0,
+            modules_open: false,
+            modules_sel: 0,
             trust_facts: None,
             trust_scroll: 0,
+            modules_screen: MgrScreen::List,
+            mgr_rows: Vec::new(),
+            mgr_url_input: None,
+            mgr_busy: false,
+            installed_modules: Vec::new(),
             profiles: Vec::new(),
             settings_values: HashMap::new(),
             module_schemas: HashMap::new(),
@@ -360,8 +433,8 @@ impl App {
                         self.on_settings_click(m.column, m.row);
                         return None;
                     }
-                    if self.trust_open || self.trust_facts.is_some() {
-                        self.on_trust_click(m.column, m.row);
+                    if self.modules_open || self.trust_facts.is_some() {
+                        self.on_modules_click(m.column, m.row);
                         return None;
                     }
                 }
@@ -407,8 +480,8 @@ impl App {
             _ => {}
         }
 
-        if self.trust_open {
-            return self.on_key_trust(code);
+        if self.modules_open {
+            return self.on_key_modules(code);
         }
         if self.settings_open {
             return self.on_key_settings(code);
@@ -418,10 +491,7 @@ impl App {
         }
         // Оверлеи.
         if code == KeyCode::Char('m') && !mods.contains(KeyModifiers::CONTROL) {
-            self.trust_open = true;
-            self.trust_sel = 0;
-            self.trust_facts = None;
-            self.trust_scroll = 0;
+            self.open_modules();
             return None;
         }
         if code == KeyCode::Char('s') && !mods.contains(KeyModifiers::CONTROL) {
@@ -757,36 +827,172 @@ impl App {
         }
     }
 
-    // ---------- доверие ----------
+    // ---------- менеджер модулей ----------
 
-    fn on_key_trust(&mut self, code: KeyCode) -> Option<PendingAction> {
+    fn open_modules(&mut self) {
+        self.modules_open = true;
+        self.modules_screen = MgrScreen::List;
+        self.modules_sel = 0;
+        self.trust_facts = None;
+        self.trust_scroll = 0;
+        self.mgr_url_input = None;
+        self.rebuild_mgr_rows();
+    }
+
+    /// Перестроить строки менеджера (после установки/изменения модулей).
+    pub fn on_modules_changed(&mut self) {
+        if self.modules_open {
+            self.rebuild_mgr_rows();
+        }
+    }
+
+    fn rebuild_mgr_rows(&mut self) {
+        self.mgr_rows = match self.modules_screen {
+            MgrScreen::List => {
+                let mut rows = vec![MgrRow::Header("Установленные модули".into())];
+                for (i, m) in self.installed_modules.iter().enumerate() {
+                    rows.push(MgrRow::Installed {
+                        idx: i,
+                        text: format!(
+                            "{} {} v{}",
+                            truncate_id(&m.id),
+                            truncate_id(&m.name),
+                            m.version
+                        ),
+                        color: m.color,
+                        profiles: m.profiles,
+                    });
+                }
+                if self.installed_modules.is_empty() {
+                    rows.push(MgrRow::Header("нет установленных модулей".into()));
+                }
+                rows.push(MgrRow::Header("Действия".into()));
+                rows.push(MgrRow::Add);
+                rows
+            }
+            MgrScreen::Add => {
+                let mut rows = vec![MgrRow::Back];
+                rows.push(MgrRow::Header("Базовые".into()));
+                for (i, b) in crate::installer::BASE_MODULES.iter().enumerate() {
+                    let installed =
+                        self.installed_modules.iter().any(|m| m.id == b.id);
+                    rows.push(MgrRow::Base {
+                        base_idx: i,
+                        text: format!("{} — {}", b.id, b.name),
+                        installed,
+                    });
+                }
+                rows.push(MgrRow::Header("Другое".into()));
+                if self.mgr_busy {
+                    rows.push(MgrRow::Busy);
+                } else {
+                    rows.push(MgrRow::UrlInput);
+                }
+                rows
+            }
+        };
+        self.modules_sel = self.modules_sel.min(self.mgr_rows.len().saturating_sub(1));
+    }
+
+    fn on_key_modules(&mut self, code: KeyCode) -> Option<PendingAction> {
+        // Ввод ссылки.
+        if let Some(url) = self.mgr_url_input.as_mut() {
+            match code {
+                KeyCode::Esc => self.mgr_url_input = None,
+                KeyCode::Enter => {
+                    let url = std::mem::take(url);
+                    if url.trim().is_empty() {
+                        self.mgr_url_input = None;
+                    } else if self.mgr_busy {
+                        self.toast_now("установка уже идёт");
+                    } else {
+                        self.mgr_busy = true;
+                        self.mgr_url_input = None;
+                        self.rebuild_mgr_rows();
+                        self.core_cmds.push(CoreCmd::InstallUrl { url: url.trim().to_string() });
+                        self.toast_now("установка начата…");
+                    }
+                }
+                KeyCode::Backspace => {
+                    url.pop();
+                }
+                KeyCode::Char(c) => url.push(c),
+                _ => {}
+            }
+            return None;
+        }
+
         match code {
             KeyCode::Char('m') | KeyCode::Esc => {
                 if self.trust_facts.is_some() {
                     self.trust_facts = None;
+                } else if self.modules_screen == MgrScreen::Add {
+                    self.modules_screen = MgrScreen::List;
+                    self.modules_sel = 0;
+                    self.rebuild_mgr_rows();
                 } else {
-                    self.trust_open = false;
+                    self.modules_open = false;
                 }
             }
             KeyCode::Up if self.trust_facts.is_none() => {
-                self.trust_sel = self.trust_sel.saturating_sub(1);
+                self.modules_sel = self.modules_sel.saturating_sub(1);
             }
             KeyCode::Down if self.trust_facts.is_none() => {
-                self.trust_sel = (self.trust_sel + 1).min(self.trust.len().saturating_sub(1));
+                self.modules_sel =
+                    (self.modules_sel + 1).min(self.mgr_rows.len().saturating_sub(1));
             }
-            KeyCode::Enter if self.trust_facts.is_none() && !self.trust.is_empty() => {
-                self.trust_facts = Some(self.trust_sel);
-                self.trust_scroll = 0;
-            }
+            KeyCode::Enter if self.trust_facts.is_none() => self.modules_activate(),
             _ => {}
         }
         None
     }
 
-    /// Клик мышью: выбор строки; клик по статусу `●` (первые 2 колонки строки)
-    /// открывает факты. Клик вне окон закрывает их.
-    fn on_trust_click(&mut self, col: u16, row: u16) {
-        if let Some(_i) = self.trust_facts {
+    fn modules_activate(&mut self) {
+        let Some(row) = self.mgr_rows.get(self.modules_sel) else {
+            return;
+        };
+        match row {
+            MgrRow::Header(_) | MgrRow::Busy => {}
+            MgrRow::Installed { idx, .. } => {
+                if let Some(m) = self.installed_modules.get(*idx) {
+                    if let Some(ri) = m.rating_idx {
+                        self.trust_facts = Some(ri);
+                        self.trust_scroll = 0;
+                    }
+                }
+            }
+            MgrRow::Add => {
+                self.modules_screen = MgrScreen::Add;
+                self.modules_sel = 0;
+                self.rebuild_mgr_rows();
+            }
+            MgrRow::Base { base_idx, installed, .. } => {
+                if *installed {
+                    self.toast_now("модуль уже установлен");
+                    return;
+                }
+                if self.mgr_busy {
+                    self.toast_now("дождитесь окончания текущей установки");
+                    return;
+                }
+                self.core_cmds.push(CoreCmd::InstallBase { idx: *base_idx });
+                self.mgr_busy = true;
+                self.rebuild_mgr_rows();
+                self.toast_now("установка начата…");
+            }
+            MgrRow::UrlInput => {
+                self.mgr_url_input = Some(String::new());
+            }
+            MgrRow::Back => {
+                self.modules_screen = MgrScreen::List;
+                self.modules_sel = 0;
+                self.rebuild_mgr_rows();
+            }
+        }
+    }
+
+    fn on_modules_click(&mut self, col: u16, row: u16) {
+        if self.trust_facts.is_some() {
             let fa = crate::render::facts_area(self.area);
             let inside = col >= fa.x && col < fa.x + fa.width && row >= fa.y && row < fa.y + fa.height;
             if !inside {
@@ -794,19 +1000,15 @@ impl App {
             }
             return;
         }
-        let list = crate::render::trust_area(self.area, self.trust.len());
+        let list = crate::render::modules_area(self.area);
         let inside = col >= list.x && col < list.x + list.width && row >= list.y && row < list.y + list.height;
         if !inside {
-            self.trust_open = false;
+            self.modules_open = false;
             return;
         }
         let idx = row.saturating_sub(list.y + 1) as usize;
-        if idx < self.trust.len() {
-            self.trust_sel = idx;
-            if col < list.x + 2 {
-                self.trust_facts = Some(idx);
-                self.trust_scroll = 0;
-            }
+        if idx < self.mgr_rows.len() {
+            self.modules_sel = idx;
         }
     }
 

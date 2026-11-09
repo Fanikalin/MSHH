@@ -8,7 +8,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, List, ListItem, Paragraph};
 use ratatui::Frame;
 
-use crate::app::{App, Focus, SettingsRow, TOAST_TTL};
+use crate::app::{App, Focus, MgrRow, SettingsRow, TOAST_TTL};
 use crate::ratings::RatingColor;
 
 fn muted() -> Style {
@@ -35,8 +35,8 @@ pub fn draw(f: &mut Frame, app: &App) {
     if app.login.is_some() {
         draw_login(f, app, area);
     }
-    if app.trust_open {
-        draw_trust(f, app, area);
+    if app.modules_open {
+        draw_modules(f, app, area);
     }
     if let Some(i) = app.trust_facts {
         draw_facts(f, app, area, i);
@@ -288,17 +288,17 @@ fn centered(width: u16, height: u16, area: Rect) -> Rect {
 
 // ---------- каталог доверия ----------
 
-/// Прямоугольник списка модулей (для хит-теста мыши в app.rs).
-pub fn trust_area(area: Rect, rows: usize) -> Rect {
-    let h = (rows as u16 + 4).clamp(5, area.height.max(5));
-    let w = 96.min(area.width.saturating_sub(2)).max(24);
-    centered(w, h, area)
-}
-
 /// Прямоугольник окна фактов.
 pub fn facts_area(area: Rect) -> Rect {
     let h = (area.height * 7 / 10).clamp(7, area.height.max(7));
     let w = (area.width * 7 / 10).clamp(44, area.width.max(44));
+    centered(w, h, area)
+}
+
+/// Прямоугольник менеджера модулей (для хит-теста мыши).
+pub fn modules_area(area: Rect) -> Rect {
+    let h = (area.height * 8 / 10).clamp(8, area.height.max(8));
+    let w = 88.min(area.width.saturating_sub(2)).max(28);
     centered(w, h, area)
 }
 
@@ -310,50 +310,77 @@ fn color_of(c: RatingColor) -> Color {
     }
 }
 
-fn truncate(s: &str, n: usize) -> String {
-    if s.chars().count() <= n {
-        s.to_string()
-    } else {
-        s.chars().take(n.saturating_sub(1)).collect::<String>() + "…"
-    }
-}
-
-fn draw_trust(f: &mut Frame, app: &App, area: Rect) {
-    let rect = trust_area(area, app.trust.len());
+fn draw_modules(f: &mut Frame, app: &App, area: Rect) {
+    let rect = modules_area(area);
     f.render_widget(Clear, rect);
+    let title = match app.modules_screen_name() {
+        "add" => " Добавить модуль ".to_string(),
+        _ => " Модули · Enter — факты рейтинга · m/Esc закрыть ".to_string(),
+    };
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .title(" Модули и доверие · Enter или клик по ● — факты · m/Esc — закрыть ");
+        .title(title);
     let inner = block.inner(rect);
     f.render_widget(block, rect);
 
     let mut lines: Vec<Line> = Vec::new();
-    if app.trust.is_empty() {
-        lines.push(Line::styled("модули не найдены", muted()));
-    }
-    for (i, r) in app.trust.iter().enumerate() {
-        let c = color_of(r.color);
-        let mut spans = vec![
-            Span::styled("●", Style::new().fg(c).add_modifier(Modifier::BOLD)),
-            Span::raw(" "),
-            Span::styled(format!("{:<10}", truncate(&r.module_id, 10)), Style::new().add_modifier(Modifier::BOLD)),
-            Span::raw(" "),
-            Span::raw(format!("{:<12}", truncate(&r.name, 12))),
-            Span::styled(format!(" {:+4}", r.score), Style::new().fg(c).add_modifier(Modifier::BOLD)),
-        ];
-        if !r.badges.is_empty() {
-            spans.push(Span::styled(format!("  {}", r.badges.join(" · ")), muted()));
-        }
-        if !r.installed {
-            spans.push(Span::styled("  (не установлен)", muted()));
+    for (i, row) in app.mgr_rows_ref().iter().enumerate() {
+        let selected = i == app.modules_sel();
+        let cur = if selected { "> " } else { "  " };
+        let mut spans: Vec<Span> = Vec::new();
+        match row {
+            MgrRow::Header(t) => {
+                spans.push(Span::styled(t.clone(), Style::new().add_modifier(Modifier::BOLD)));
+            }
+            MgrRow::Installed { text, color, profiles, .. } => {
+                spans.push(Span::styled("●", Style::new().fg(color_of(*color)).add_modifier(Modifier::BOLD)));
+                spans.push(Span::raw(format!(" {cur}{text}")));
+                spans.push(Span::styled(format!("  профилей: {profiles}"), muted()));
+            }
+            MgrRow::Add => {
+                spans.push(Span::styled(
+                    format!("{cur}+ Добавить модуль"),
+                    Style::new().fg(Color::Cyan),
+                ));
+            }
+            MgrRow::Base { text, installed, .. } => {
+                if *installed {
+                    spans.push(Span::styled(format!("{cur}{text}  — установлен"), muted()));
+                } else {
+                    spans.push(Span::raw(format!("{cur}{text}")));
+                }
+            }
+            MgrRow::UrlInput => {
+                spans.push(Span::styled(
+                    format!("{cur}Добавить по ссылке (git)…"),
+                    Style::new().fg(Color::Cyan),
+                ));
+            }
+            MgrRow::Busy => {
+                spans.push(Span::styled(format!("{cur}установка выполняется…"), muted()));
+            }
+            MgrRow::Back => {
+                spans.push(Span::raw(format!("{cur}← Назад")));
+            }
         }
         let mut line = Line::from(spans);
-        if i == app.trust_sel && app.trust_facts.is_none() {
+        if selected {
             line = line.style(Style::new().bg(Color::DarkGray));
         }
         lines.push(line);
     }
+    if let Some(url) = app.mgr_url_ref() {
+        lines.push(Line::from(vec![
+            Span::styled("URL: ", Style::new().fg(Color::Cyan)),
+            Span::raw(format!("{url}▌")),
+            Span::styled("  (Enter — установить · Esc — отмена)", muted()),
+        ]));
+    }
+    lines.push(Line::styled(
+        "установка = git clone + cargo build --release; модуль — нативный код, ставьте только доверенное",
+        muted(),
+    ));
     f.render_widget(Paragraph::new(lines), inner);
 }
 

@@ -205,11 +205,16 @@ impl Runtime {
         errors
     }
 
-    /// Загрузить одну библиотеку (для тестов и ад-хок установки).
-    pub fn load_file(&mut self, path: &Path) -> Result<(), String> {
+    /// Загрузить одну библиотеку (для тестов и установки из менеджера).
+    /// Повторная загрузка обновляет запись (артефакт мог обновиться).
+    pub fn load_file(&mut self, path: &Path) -> Result<ModuleInfoOwned, String> {
         let lib = ModuleLib::load(path)?;
-        self.libs.insert(lib.info.id.clone(), lib);
-        Ok(())
+        if self.libs.contains_key(&lib.info.id) {
+            logger::info("core", &format!("перезагрузка библиотеки «{}»", lib.info.id));
+        }
+        let info = lib.info.clone();
+        self.libs.insert(info.id.clone(), lib);
+        Ok(info)
     }
 
     pub fn libs(&self) -> &HashMap<String, ModuleLib> {

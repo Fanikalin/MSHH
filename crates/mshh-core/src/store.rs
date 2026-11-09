@@ -15,6 +15,23 @@ pub struct Profile {
     pub enabled: bool,
 }
 
+/// Правило включения чата в группу: `kind` — тип правила, `value` — payload.
+/// kind: `type` (value: person|group|channel|bot), `module` (module_id),
+/// `trust` (green|yellow|red), `chat` (внутренний ключ `{profile}:{chat_id}`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GroupRule {
+    pub kind: String,
+    pub value: String,
+}
+
+/// Группа чатов: именованный набор правил включения (ИЛИ).
+#[derive(Clone, Debug)]
+pub struct Group {
+    pub id: String,
+    pub name: String,
+    pub rules: Vec<GroupRule>,
+}
+
 impl Store {
     pub fn profiles(&self) -> Result<Vec<Profile>, String> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
@@ -101,8 +118,7 @@ impl Store {
     }
 
     /// Настройки отображения самого ядра (профиль `__app`).
-    pub fn app_get(&self, key: &str) -> Option<String> {
-        let conn = self.conn.lock().ok()?;
+    pub fn app_get(&self, key: &str) -> Option<String> {        let conn = self.conn.lock().ok()?;
         conn.query_row(
             "SELECT value FROM core_app WHERE key = ?1",
             [key],
