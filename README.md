@@ -18,8 +18,11 @@ GUI-рендерер, сетевые примитивы ядра (ABI v2). См.
 ## Установка одной командой
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Fanikalin/MSHH/main/install.sh | sh
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/Fanikalin/MSHH/main/install.sh)"
 ```
+
+> Голый `curl … | sh` тоже работает: скрипт сам пересоздаёт себя во временный
+> файл, чтобы порождённые процессы (brew/git) не съели остаток из stdin.
 
 Linux. На Arch ставит нативный `rust` из pacman, на Bazzite и других атомарных
 Fedora (Silverblue, Bluefin) — через предустановленный Homebrew, на остальных

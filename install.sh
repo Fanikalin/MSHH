@@ -1,7 +1,9 @@
 #!/usr/bin/env sh
 # Установка MSHH одной командой (Linux; Arch — в приоритете):
 #
-#   curl -fsSL https://raw.githubusercontent.com/Fanikalin/MSHH/main/install.sh | sh
+#   sh -c "$(curl -fsSL https://raw.githubusercontent.com/Fanikalin/MSHH/main/install.sh)"
+#
+# (голый `curl ... | sh` тоже работает — скрипт пересоздаёт себя во temp-файл)
 #
 # Скрипт: ставит тулчейн (Arch — нативный `rust` из pacman, Bazzite и другие
 # атомарные Fedora — Homebrew, остальные — rustup),
@@ -10,6 +12,17 @@
 #
 # Переопределение путей: MSHH_INSTALL_DIR, MSHH_BIN_DIR, MSHH_MODULES_DIR.
 set -eu
+
+RAW_URL="https://raw.githubusercontent.com/Fanikalin/MSHH/main/install.sh"
+
+# Защита от `curl URL | sh`: шелл читает скрипт из пайпа лениво, а порождённые
+# процессы (brew, git, rustup) наследуют тот же stdin и воруют непрочитанный
+# остаток скрипта. Если stdin — пайп, перекачиваем скрипт в файл и исполняем его.
+if [ -p /proc/$$/fd/0 ] 2>/dev/null && command -v curl >/dev/null 2>&1; then
+  tmp="$(mktemp "${TMPDIR:-/tmp}/mshh-install.XXXXXX")"
+  curl -fsSL "$RAW_URL" -o "$tmp"
+  exec sh "$tmp" </dev/null
+fi
 
 REPO="https://github.com/Fanikalin/MSHH.git"
 DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
