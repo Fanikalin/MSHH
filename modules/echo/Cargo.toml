@@ -1,0 +1,12 @@
+[package]
+name = "mshh-module-echo"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Пример модуля MSHH: локальный эхо-протокол"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+mshh-module-api.workspace = true

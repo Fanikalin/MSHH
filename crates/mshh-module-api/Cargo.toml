@@ -1,0 +1,12 @@
+[package]
+name = "mshh-module-api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "SDK для модулей MSHH: C-ABI, модель данных, Session"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+libc.workspace = true
+crossbeam-channel.workspace = true

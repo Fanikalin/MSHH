@@ -1,0 +1,24 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/mshh-module-api",
+    "crates/mshh-core",
+    "modules/echo",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+mshh-module-api = { path = "crates/mshh-module-api" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+libc = "0.2"
+crossbeam-channel = "0.5"
+libloading = "0.8"
+rusqlite = { version = "0.32", features = ["bundled"] }
+ratatui = "0.29"
+crossterm = "0.28"
+chrono = "0.4"
