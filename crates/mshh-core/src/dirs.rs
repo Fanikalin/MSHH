@@ -19,16 +19,15 @@ pub fn resolve(a: &Args) -> Dirs {
         .state_dir
         .clone()
         .unwrap_or_else(|| xdg("XDG_STATE_HOME", ".local/state").join("mshh"));
-    let modules = match &a.modules_dir {
-        Some(p) => vec![p.clone()],
-        None => {
-            let mut v = vec![data.join("modules")];
-            let local = Path::new("./modules");
-            if local.is_dir() {
-                v.push(local.to_path_buf());
-            }
-            v
+    let modules = if a.modules_dir.is_empty() {
+        let mut v = vec![data.join("modules")];
+        let local = Path::new("./modules");
+        if local.is_dir() {
+            v.push(local.to_path_buf());
         }
+        v
+    } else {
+        a.modules_dir.clone()
     };
     Dirs { db: data.join("store.db"), log: state.join("mshh.log"), modules, data, state }
 }

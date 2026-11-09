@@ -2,7 +2,8 @@ use std::path::PathBuf;
 
 #[derive(Debug, Default)]
 pub struct Args {
-    pub modules_dir: Option<PathBuf>,
+    /// Повторяемый флаг: --modules-dir A --modules-dir B.
+    pub modules_dir: Vec<PathBuf>,
     pub data_dir: Option<PathBuf>,
     pub state_dir: Option<PathBuf>,
     pub list: bool,
@@ -31,7 +32,7 @@ pub fn parse() -> Args {
             "--list" => a.list = true,
             "--headless" => a.headless = true,
             "--verbose" => a.verbose = true,
-            "--modules-dir" => a.modules_dir = Some(next_value(&mut it, "--modules-dir")),
+            "--modules-dir" => a.modules_dir.push(next_value(&mut it, "--modules-dir")),
             "--data-dir" => a.data_dir = Some(next_value(&mut it, "--data-dir")),
             "--state-dir" => a.state_dir = Some(next_value(&mut it, "--state-dir")),
             "-h" | "--help" => {
