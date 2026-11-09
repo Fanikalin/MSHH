@@ -36,17 +36,27 @@ pub struct MainLayout {
 }
 
 /// Единая раскладка: рейка (настройки/группы) → чаты → беседа.
-pub fn main_layout(area: Rect, composer_height: u16) -> MainLayout {
+pub fn main_layout(area: Rect, buttons_width: u16) -> MainLayout {
     let cols = Layout::horizontal([
-        Constraint::Percentage(16),
-        Constraint::Percentage(26),
+        Constraint::Length(14),
+        Constraint::Percentage(30),
         Constraint::Fill(1),
     ])
     .split(area);
-    let rail_w = cols[0].width.saturating_sub(2).max(1);
-    let rail = Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).split(cols[0]);
-    let rail_settings = Rect::new(rail[0].x + 1, rail[0].y, rail_w, 1);
-    let rail_groups = Rect::new(rail[1].x + 1, rail[1].y + 1, rail_w, rail[1].height.saturating_sub(2));
+    let rail_inner = Rect::new(
+        cols[0].x + 1,
+        cols[0].y + 1,
+        cols[0].width.saturating_sub(2).max(1),
+        cols[0].height.saturating_sub(2),
+    );
+    let rail_settings = Rect::new(rail_inner.x, rail_inner.y, rail_inner.width, 1);
+    // Группы: строки после заголовка «Группы» (вторая строка панели).
+    let rail_groups = Rect::new(
+        rail_inner.x,
+        rail_inner.y + 2,
+        rail_inner.width,
+        rail_inner.height.saturating_sub(2),
+    );
 
     let chats_col = Layout::vertical([Constraint::Length(3), Constraint::Fill(1)]).split(cols[1]);
     let search = Rect::new(chats_col[0].x + 1, chats_col[0].y + 1, cols[1].width.saturating_sub(2).max(1), 1);
@@ -55,19 +65,15 @@ pub fn main_layout(area: Rect, composer_height: u16) -> MainLayout {
     let right = Layout::vertical([
         Constraint::Length(3),
         Constraint::Fill(1),
-        Constraint::Length(composer_height),
+        Constraint::Length(3),
     ])
     .split(cols[2]);
     let right_w = right[2].width.saturating_sub(2).max(1);
-    let composer_inner_y = right[2].y + 1;
-    // Строка 0 композера — кнопки модуля (если есть), далее строка ввода
-    // с кружком аккаунта слева.
-    let (buttons_row, input_row) = if composer_height > 3 {
-        (Some(composer_inner_y), composer_inner_y + 1)
-    } else {
-        (None, composer_inner_y)
-    };
+    let input_row = right[2].y + 1;
     let chip = Rect::new(right[2].x + 1, input_row, 4, 1);
+    // Кнопки модуля — в конце строки ввода, справа (как в TG).
+    let bw = buttons_width.min(right_w.saturating_sub(chip.width + 1)).max(1);
+    let buttons_rect = Rect::new(right[2].x + 1 + right_w.saturating_sub(bw), input_row, bw, 1);
     MainLayout {
         rail_settings,
         rail_groups,
@@ -76,8 +82,7 @@ pub fn main_layout(area: Rect, composer_height: u16) -> MainLayout {
         header: right[0],
         messages: right[1],
         composer: right[2],
-        composer_buttons: buttons_row
-            .map(|y| Rect::new(right[2].x + 1, y, right_w, 1)),
+        composer_buttons: Some(buttons_rect),
         account_chip: chip,
     }
 }
@@ -163,7 +168,7 @@ fn draw_static_image(f: &mut Frame, rect: Rect, path: &str) -> bool {
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     let area = f.area();
-    let layout = main_layout(area, app.composer_height());
+    let layout = main_layout(area, app.composer_buttons_width());
 
     draw_rail(f, app, &layout);
     draw_chat_column(f, app, &layout);
@@ -189,12 +194,40 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     draw_toast(f, app, area);
 }
 
-/// Левая рейка: кнопка настроек + группы.
+/// Левая рейка: ОДНА рамочная панель, внутри — настройки и группы.
 fn draw_rail(f: &mut Frame, app: &App, l: &MainLayout) {
+    let panel = Rect::new(
+        l.rail_settings.x.saturating_sub(1),
+        l.rail_settings.y.saturating_sub(1),
+        l.rail_settings.width + 2,
+        l.rail_groups.height + 4,
+    );
+    f.render_widget(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .title(" ☰ "),
+        panel,
+    );
+
     let style = Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD);
     f.render_widget(
-        Paragraph::new(Line::from(Span::styled("[ ⚙ Настройки ]", style))),
+        Paragraph::new(Line::from(Span::styled("⚙ Настройки", style))),
         l.rail_settings,
+    );
+
+    let header = Rect::new(
+        l.rail_groups.x,
+        l.rail_groups.y.saturating_sub(1),
+        l.rail_groups.width,
+        1,
+    );
+    f.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            "Группы",
+            Style::new().add_modifier(Modifier::BOLD),
+        ))),
+        header,
     );
 
     let mut group_lines: Vec<Line> = Vec::new();
@@ -209,8 +242,9 @@ fn draw_rail(f: &mut Frame, app: &App, l: &MainLayout) {
     )));
     for g in &app.groups {
         let sel = app.active_group.as_deref() == Some(&g.id);
+        let w = l.rail_groups.width as usize;
         group_lines.push(Line::from(Span::styled(
-            format!("{}{}", if sel { "> " } else { "  " }, g.name),
+            format!("{}{}", if sel { "> " } else { "  " }, truncate(&g.name, w.saturating_sub(2))),
             if sel {
                 Style::new().bg(Color::DarkGray).add_modifier(Modifier::BOLD)
             } else {
@@ -218,19 +252,6 @@ fn draw_rail(f: &mut Frame, app: &App, l: &MainLayout) {
             },
         )));
     }
-    let groups_rect = Rect::new(
-        l.rail_groups.x.saturating_sub(1),
-        l.rail_groups.y.saturating_sub(1),
-        l.rail_groups.width + 2,
-        l.rail_groups.height + 2,
-    );
-    f.render_widget(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .title(" Группы "),
-        groups_rect,
-    );
     f.render_widget(Paragraph::new(group_lines), l.rail_groups);
 }
 
@@ -632,13 +653,14 @@ fn draw_composer(f: &mut Frame, app: &App, l: &MainLayout) {
 
     let profile = app.selected_chat_profile_pub();
 
-    // Кнопки модуля — первой строкой внутри композера.
-    if let Some(btns_rect) = l.composer_buttons {
-        let buttons = profile
-            .as_ref()
-            .and_then(|p| app.composer_buttons.get(p))
-            .cloned()
-            .unwrap_or_default();
+    // Кнопки модуля — в конце строки ввода, справа (как в TG).
+    let buttons = profile
+        .as_ref()
+        .and_then(|p| app.composer_buttons.get(p))
+        .cloned()
+        .unwrap_or_default();
+    let btn_rect = l.composer_buttons.unwrap_or_default();
+    if !buttons.is_empty() {
         let mut spans: Vec<Span> = Vec::new();
         for b in &buttons {
             spans.push(Span::styled(
@@ -646,27 +668,22 @@ fn draw_composer(f: &mut Frame, app: &App, l: &MainLayout) {
                 Style::new().fg(Color::Cyan),
             ));
         }
-        if spans.is_empty() {
-            spans.push(Span::styled(" ", muted()));
-        }
-        f.render_widget(Paragraph::new(Line::from(spans)), btns_rect);
+        f.render_widget(Paragraph::new(Line::from(spans)), btn_rect);
     }
 
-    // Кружок активного аккаунта + ввод.
+    // Кружок активного аккаунта + ввод между кружком и кнопками.
     let chip_span = match profile.as_ref().and_then(|p| app.active_account(p)) {
         Some(acc) => avatar_chip(acc.avatar.as_ref(), &acc.name).0,
         None => Span::styled(" ? ", Style::new().bg(Color::DarkGray).fg(Color::White)),
     };
     let input_y = l.account_chip.y;
     let input_x = l.account_chip.x + l.account_chip.width;
-    let input_w = l.composer.width.saturating_sub(input_x - l.composer.x + 1);
+    let input_w = btn_rect.x.saturating_sub(input_x);
     let input_rect = Rect::new(input_x, input_y, input_w, 1);
-    f.render_widget(Paragraph::new(Line::from(vec![chip_span, Span::raw(" ")])), Rect::new(
-        l.account_chip.x,
-        input_y,
-        l.account_chip.width + 1,
-        1,
-    ));
+    f.render_widget(
+        Paragraph::new(Line::from(vec![chip_span, Span::raw(" ")])),
+        Rect::new(l.account_chip.x, input_y, l.account_chip.width + 1, 1),
+    );
     f.render_widget(Paragraph::new(app.composer.as_str()), input_rect);
     if focused {
         let x = input_x + app.composer.chars().count() as u16;

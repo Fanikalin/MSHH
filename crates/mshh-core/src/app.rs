@@ -1680,7 +1680,7 @@ impl App {
 
     /// Клик по сайдбару/правой панели: раскладка из render::main_layout.
     fn on_main_click(&mut self, col: u16, row: u16) -> Option<PendingAction> {
-        let l = crate::render::main_layout(self.area, self.composer_height());
+        let l = crate::render::main_layout(self.area, self.composer_buttons_width());
         let inside = |r: Rect| col >= r.x && col < r.x + r.width && row >= r.y && row < r.y + r.height;
 
         if inside(l.search) {
@@ -1790,14 +1790,15 @@ impl App {
         self.accounts.iter().find(|(p, a)| p == profile && a.active).map(|(_, a)| a)
     }
 
-    /// Высота композера: базовая + строка кнопок модуля.
-    pub(crate) fn composer_height(&self) -> u16 {
-        let buttons = self
-            .selected_chat_profile()
-            .and_then(|p| self.composer_buttons.get(&p))
-            .map(|v| !v.is_empty())
-            .unwrap_or(false);
-        3 + u16::from(buttons)
+    /// Ширина зоны кнопок модуля в строке ввода (справа).
+    pub(crate) fn composer_buttons_width(&self) -> u16 {
+        let Some(profile) = self.selected_chat_profile() else { return 1 };
+        let w: usize = self
+            .composer_buttons
+            .get(&profile)
+            .map(|v| v.iter().map(|b| b.label.chars().count() + 3).sum())
+            .unwrap_or(0);
+        (w as u16).max(1)
     }
 
     // ---------- пикер аккаунта ----------
