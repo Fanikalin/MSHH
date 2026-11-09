@@ -145,6 +145,28 @@ pub fn install_from_repo(
         progress(format!("в репозитории несколько модулей, устанавливаю первый: {pkg}"));
     }
 
+    // Модули зависят от ядра по пути `../../MSHH/crates/mshh-module-api`.
+    // В чужом клоне этого каталога нет — клонируем ядро рядом (кэшируется).
+    let api_dir = crate_dir.join("../../MSHH/crates/mshh-module-api").canonicalize().unwrap_or_else(|_| crate_dir.join("../../MSHH/crates/mshh-module-api"));
+    if !api_dir.is_dir() {
+        let core_dir = crate_dir.join("../../MSHH");
+        if let Some(parent) = core_dir.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        if !core_dir.join(".git").is_dir() {
+            progress("клонирование ядра MSHH (для path-зависимостей)…".to_string());
+            let out = std::process::Command::new("git")
+                .args(["clone", "--depth", "1", "https://github.com/Fanikalin/MSHH.git"])
+                .current_dir(core_dir.parent().expect("родитель есть"))
+                .output()
+                .map_err(|e| format!("git не найден: {e}"))?;
+            if !out.status.success() {
+                let msg = String::from_utf8_lossy(&out.stderr);
+                return Err(format!("клонирование ядра: {}", msg.lines().last().unwrap_or("ошибка")));
+            }
+        }
+    }
+
     progress(format!("сборка {pkg} (cargo build --release)…"));
     let cargo = find_cargo().ok_or_else(|| {
         "rust не найден: для сборки модуля нужен cargo — установи rust \
@@ -157,9 +179,12 @@ pub fn install_from_repo(
         .output()
         .map_err(|e| format!("cargo не запущен ({}): {e}", cargo.display()))?;
     if !out.status.success() {
-        let tail = String::from_utf8_lossy(&out.stderr);
-        let tail = tail.lines().rev().take(8).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
-        return Err(format!("cargo build {pkg} завершился с ошибкой:\n{tail}"));
+        let mut tail = String::from_utf8_lossy(&out.stderr).lines().rev().take(8).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
+        if tail.trim().is_empty() {
+            tail = String::from_utf8_lossy(&out.stdout).lines().rev().take(8).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
+        }
+        let code = out.status.code().map(|c| c.to_string()).unwrap_or_else(|| "signal".into());
+        return Err(format!("cargo build {pkg} завершился с ошибкой (код {code}):\n{tail}"));
     }
 
     // Артефакт: crate target или общий workspace target — ищем от репозитория.
@@ -387,6 +412,7 @@ mod tests {
             Some("mod"),
             &dir.join("src-cache"),
             &dest,
+            None,
             &|m| logger::debug("installer-test", &m),
         );
         assert!(got.is_ok(), "{got:?}");
