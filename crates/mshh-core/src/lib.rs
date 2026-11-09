@@ -7,6 +7,7 @@ pub mod dirs;
 pub mod events;
 pub mod loader;
 pub mod logger;
+pub mod ratings;
 pub mod render;
 pub mod runtime;
 pub mod store;

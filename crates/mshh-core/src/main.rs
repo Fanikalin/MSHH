@@ -4,7 +4,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use crossterm::event;
-use mshh_core::{app::App, args, dirs, events::Event, loader, logger, render, runtime::Runtime, store::Store, tui};
+use mshh_core::{app::App, args, dirs, events::Event, loader, logger, ratings, render, runtime::Runtime, store::Store, tui};
 
 fn main() -> std::process::ExitCode {
     let args = args::parse();
@@ -68,8 +68,19 @@ fn main() -> std::process::ExitCode {
         });
 
     let mut app = App::new(runtime.instances().len());
+    // Вшитый каталог доверия; загруженные модули вне каталога — «неизвестные».
+    let mut trust = ratings::builtin();
+    for inst in runtime.instances() {
+        match trust.iter_mut().find(|v| v.module_id == inst.info.id) {
+            Some(v) => v.installed = true,
+            None => trust.push(ratings::unknown(&inst.info.id, &inst.info.name)),
+        }
+    }
+    app.trust = trust;
     loop {
-        let _ = terminal.draw(|f| render::draw(f, &app));
+        if let Ok(frame) = terminal.draw(|f| render::draw(f, &app)) {
+            app.area = frame.area;
+        }
         let first = match rx.recv_timeout(Duration::from_millis(250)) {
             Ok(ev) => Some(ev),
             Err(mpsc::RecvTimeoutError::Timeout) => None,

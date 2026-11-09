@@ -3,11 +3,16 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use crossterm::event::{Event as TermEvent, KeyCode, KeyEventKind, KeyModifiers, MouseEventKind};
+use crossterm::event::{
+    Event as TermEvent, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
+};
 use mshh_module_api::model::{
     actions, AccountView, ChatId, ChatView, Ev, FieldDef, MessageView, ModuleId, UiCmd,
 };
+use ratatui::layout::Rect;
 use serde_json::{json, Map as JsonMap};
+
+use crate::ratings::RatingView;
 
 pub const TOAST_TTL: Duration = Duration::from_secs(3);
 
@@ -47,6 +52,15 @@ pub struct App {
     pub chat_owner: HashMap<ChatId, ModuleId>,
     pub module_count: usize,
     pub quit: bool,
+    /// Вшитый каталог доверия + записи о загруженных модулях.
+    pub trust: Vec<RatingView>,
+    pub trust_open: bool,
+    pub trust_sel: usize,
+    /// Открытое окно фактов: индекс в `trust`.
+    pub trust_facts: Option<usize>,
+    pub trust_scroll: u32,
+    /// Последняя известная площадь терминала (хит-тест мыши).
+    pub area: Rect,
 }
 
 impl App {
@@ -65,6 +79,12 @@ impl App {
             chat_owner: HashMap::new(),
             module_count,
             quit: false,
+            trust: Vec::new(),
+            trust_open: false,
+            trust_sel: 0,
+            trust_facts: None,
+            trust_scroll: 0,
+            area: Rect::new(0, 0, 1, 1),
         }
     }
 
@@ -129,17 +149,25 @@ impl App {
     pub fn on_input(&mut self, ev: &TermEvent) -> Option<PendingAction> {
         match ev {
             TermEvent::Key(k) if k.kind == KeyEventKind::Press => self.on_key(k.code, k.modifiers),
-            TermEvent::Mouse(m) => match m.kind {
-                MouseEventKind::ScrollUp => {
-                    self.scroll_from_end = self.scroll_from_end.saturating_add(3);
-                    None
+            TermEvent::Mouse(m) => {
+                if m.kind == MouseEventKind::Down(MouseButton::Left)
+                    && (self.trust_open || self.trust_facts.is_some())
+                {
+                    self.on_trust_click(m.column, m.row);
+                    return None;
                 }
-                MouseEventKind::ScrollDown => {
-                    self.scroll_from_end = self.scroll_from_end.saturating_sub(3);
-                    None
+                match m.kind {
+                    MouseEventKind::ScrollUp => {
+                        self.scroll_from_end = self.scroll_from_end.saturating_add(3);
+                        None
+                    }
+                    MouseEventKind::ScrollDown => {
+                        self.scroll_from_end = self.scroll_from_end.saturating_sub(3);
+                        None
+                    }
+                    _ => None,
                 }
-                _ => None,
-            },
+            }
             _ => None,
         }
     }
@@ -149,6 +177,14 @@ impl App {
         match code {
             KeyCode::Char('q') if mods.contains(KeyModifiers::CONTROL) => {
                 self.quit = true;
+                return None;
+            }
+            KeyCode::PageUp if self.trust_facts.is_some() => {
+                self.trust_scroll = self.trust_scroll.saturating_add(5);
+                return None;
+            }
+            KeyCode::PageDown if self.trust_facts.is_some() => {
+                self.trust_scroll = self.trust_scroll.saturating_sub(5);
                 return None;
             }
             KeyCode::PageUp => {
@@ -162,8 +198,19 @@ impl App {
             _ => {}
         }
 
+        if self.trust_open {
+            return self.on_key_trust(code);
+        }
         if self.login.is_some() {
             return self.on_key_login(code, mods);
+        }
+        // Каталог доверия.
+        if code == KeyCode::Char('m') && !mods.contains(KeyModifiers::CONTROL) {
+            self.trust_open = true;
+            self.trust_sel = 0;
+            self.trust_facts = None;
+            self.trust_scroll = 0;
+            return None;
         }
 
         match self.focus {
@@ -250,6 +297,58 @@ impl App {
         }
         self.login = None;
         Some(PendingAction { module, ev: out })
+    }
+
+    /// Клавиатура каталога доверия.
+    fn on_key_trust(&mut self, code: KeyCode) -> Option<PendingAction> {
+        match code {
+            KeyCode::Char('m') | KeyCode::Esc => {
+                if self.trust_facts.is_some() {
+                    self.trust_facts = None;
+                } else {
+                    self.trust_open = false;
+                }
+            }
+            KeyCode::Up if self.trust_facts.is_none() => {
+                self.trust_sel = self.trust_sel.saturating_sub(1);
+            }
+            KeyCode::Down if self.trust_facts.is_none() => {
+                self.trust_sel = (self.trust_sel + 1).min(self.trust.len().saturating_sub(1));
+            }
+            KeyCode::Enter if self.trust_facts.is_none() && !self.trust.is_empty() => {
+                self.trust_facts = Some(self.trust_sel);
+                self.trust_scroll = 0;
+            }
+            _ => {}
+        }
+        None
+    }
+
+    /// Клик мышью: выбор строки; клик по статусу `●` (первые 2 колонки строки)
+    /// открывает факты. Клик вне окон закрывает их.
+    fn on_trust_click(&mut self, col: u16, row: u16) {
+        if let Some(_i) = self.trust_facts {
+            let fa = crate::render::facts_area(self.area);
+            let inside = col >= fa.x && col < fa.x + fa.width && row >= fa.y && row < fa.y + fa.height;
+            if !inside {
+                self.trust_facts = None;
+            }
+            return;
+        }
+        let list = crate::render::trust_area(self.area, self.trust.len());
+        let inside = col >= list.x && col < list.x + list.width && row >= list.y && row < list.y + list.height;
+        if !inside {
+            self.trust_open = false;
+            return;
+        }
+        let idx = row.saturating_sub(list.y + 1) as usize;
+        if idx < self.trust.len() {
+            self.trust_sel = idx;
+            if col < list.x + 2 {
+                self.trust_facts = Some(idx);
+                self.trust_scroll = 0;
+            }
+        }
     }
 
     fn selected_index(&self) -> Option<usize> {

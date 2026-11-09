@@ -9,6 +9,7 @@ use ratatui::widgets::{Block, BorderType, Borders, Clear, List, ListItem, Paragr
 use ratatui::Frame;
 
 use crate::app::{App, Focus, TOAST_TTL};
+use crate::ratings::RatingColor;
 
 fn muted() -> Style {
     Style::new().fg(Color::DarkGray)
@@ -31,6 +32,12 @@ pub fn draw(f: &mut Frame, app: &App) {
 
     if app.login.is_some() {
         draw_login(f, app, area);
+    }
+    if app.trust_open {
+        draw_trust(f, app, area);
+    }
+    if let Some(i) = app.trust_facts {
+        draw_facts(f, app, area, i);
     }
     draw_toast(f, app, area);
 }
@@ -256,4 +263,126 @@ fn centered(width: u16, height: u16, area: Rect) -> Rect {
         Constraint::Fill(1),
     ])
     .split(v[1])[1]
+}
+
+// ---------- каталог доверия ----------
+
+/// Прямоугольник списка модулей (для хит-теста мыши в app.rs).
+pub fn trust_area(area: Rect, rows: usize) -> Rect {
+    let h = (rows as u16 + 4).clamp(5, area.height.max(5));
+    let w = 96.min(area.width.saturating_sub(2)).max(24);
+    centered(w, h, area)
+}
+
+/// Прямоугольник окна фактов.
+pub fn facts_area(area: Rect) -> Rect {
+    let h = (area.height * 7 / 10).clamp(7, area.height.max(7));
+    let w = (area.width * 7 / 10).clamp(44, area.width.max(44));
+    centered(w, h, area)
+}
+
+fn color_of(c: RatingColor) -> Color {
+    match c {
+        RatingColor::Green => Color::Green,
+        RatingColor::Yellow => Color::Yellow,
+        RatingColor::Red => Color::Red,
+    }
+}
+
+fn truncate(s: &str, n: usize) -> String {
+    if s.chars().count() <= n {
+        s.to_string()
+    } else {
+        s.chars().take(n.saturating_sub(1)).collect::<String>() + "…"
+    }
+}
+
+fn draw_trust(f: &mut Frame, app: &App, area: Rect) {
+    let rect = trust_area(area, app.trust.len());
+    f.render_widget(Clear, rect);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .title(" Модули и доверие · Enter или клик по ● — факты · m/Esc — закрыть ");
+    let inner = block.inner(rect);
+    f.render_widget(block, rect);
+
+    let mut lines: Vec<Line> = Vec::new();
+    if app.trust.is_empty() {
+        lines.push(Line::styled("модули не найдены", muted()));
+    }
+    for (i, r) in app.trust.iter().enumerate() {
+        let c = color_of(r.color);
+        let mut spans = vec![
+            Span::styled("●", Style::new().fg(c).add_modifier(Modifier::BOLD)),
+            Span::raw(" "),
+            Span::styled(format!("{:<10}", truncate(&r.module_id, 10)), Style::new().add_modifier(Modifier::BOLD)),
+            Span::raw(" "),
+            Span::raw(format!("{:<12}", truncate(&r.name, 12))),
+            Span::styled(format!(" {:+4}", r.score), Style::new().fg(c).add_modifier(Modifier::BOLD)),
+        ];
+        if !r.badges.is_empty() {
+            spans.push(Span::styled(format!("  {}", r.badges.join(" · ")), muted()));
+        }
+        if !r.installed {
+            spans.push(Span::styled("  (не установлен)", muted()));
+        }
+        let mut line = Line::from(spans);
+        if i == app.trust_sel && app.trust_facts.is_none() {
+            line = line.style(Style::new().bg(Color::DarkGray));
+        }
+        lines.push(line);
+    }
+    f.render_widget(Paragraph::new(lines), inner);
+}
+
+fn draw_facts(f: &mut Frame, app: &App, area: Rect, index: usize) {
+    let Some(r) = app.trust.get(index) else { return };
+    let rect = facts_area(area);
+    f.render_widget(Clear, rect);
+    let c = color_of(r.color);
+    let badges = if r.badges.is_empty() {
+        String::new()
+    } else {
+        format!(" · {}", r.badges.join(" · "))
+    };
+    let party = if r.first_party { "первая сторона MSHH" } else { "сторонний модуль" };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::new().fg(c))
+        .title(format!(" {}: {:+} → {} ({party}){badges} ", r.module_id, r.score, r.color.label()));
+    let inner = block.inner(rect);
+    f.render_widget(block, rect);
+
+    let mut lines: Vec<Line> = Vec::new();
+    lines.push(Line::styled(
+        "Факты рейтинга (сумма баллов):",
+        Style::new().add_modifier(Modifier::BOLD),
+    ));
+    for fact in &r.facts {
+        let sign = if fact.points >= 0 {
+            format!("+{}", fact.points)
+        } else {
+            format!("{}", fact.points)
+        };
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!("{sign:>3} "),
+                Style::new().fg(color_of_points(fact.points)).add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(fact.text.clone()),
+        ]));
+    }
+    lines.push(Line::styled("Esc — назад · PgUp/PgDn — прокрутка", muted()));
+    let start = (app.trust_scroll as usize).min(lines.len().saturating_sub(1));
+    f.render_widget(Paragraph::new(lines[start..].to_vec()), inner);
+}
+
+fn color_of_points(points: i32) -> Color {
+    if points >= 0 {
+        Color::Green
+    } else {
+        Color::Red
+    }
 }

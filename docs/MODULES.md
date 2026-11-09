@@ -125,6 +125,8 @@ mshh --list && mshh
 * `storage_exec` принимает любые SQL (SELECT/INSERT/DDL); параметры — `?N`.
 * Мелкое состояние — `kv_*` (не нужно создавать таблицу).
 * Схему создавайте в начале `run` (`CREATE TABLE IF NOT EXISTS …`).
+* Файлы (сессии, ключи, state-store): `$HOME/.local/share/mshh/modules-data/<id>/`,
+  создавайте каталог сами (`create_dir_all`). Права на файлы с секретами — 0600.
 
 ## Правила и ограничения
 
