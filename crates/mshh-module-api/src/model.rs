@@ -56,6 +56,10 @@ pub enum UiCmd {
     /// Кнопки модуля в поле ввода. Рендерятся над строкой ввода;
     /// клик → [`actions::COMPOSER_BUTTON`] с `{"button": id, "chat_id": ...}`.
     SetComposerButtons(Vec<ComposerButton>),
+    /// Ответ на [`actions::ACCOUNT_LIST`]: аккаунты профиля, которые МОГУТ
+    /// писать в `chat_id` (именно они попадают в пикер). `chat_id` — без
+    /// префикса профиля. Не ответив, модуль оставляет ядре полный список.
+    SetAccountChoices { chat_id: ChatId, accounts: Vec<AccountView> },
     /// Ответ на [`actions::SEARCH_QUERY`]: найденные чаты этого профиля.
     /// `query` — та же строка, что пришла в запросе (ядро отбрасывает
     /// устаревшие ответы). Идентификаторы чатов — без префикса профиля.
@@ -180,7 +184,9 @@ pub struct MessageView {
 #[serde(tag = "t", content = "v")]
 pub enum Body {
     Text(String),
-    Image { alt: String },
+    /// Картинка/стикер/GIF. `path` — локальный файл, который скачал модуль;
+    /// без `path` ядро показывает плейсхолдер. GIF анимируется в kitty/sixel.
+    Image { alt: String, #[serde(default)] path: Option<String> },
     File { name: String, size: Option<u64> },
 }
 
@@ -203,8 +209,13 @@ pub mod actions {
     /// [`crate::model::UiCmd::SearchResults`]. Ядро шлёт при наборе в поиске.
     pub const SEARCH_QUERY: &str = "__search.query";
     /// payload: `{"account_id": "..."}`. Сменить активный аккаунт профиля;
-    /// применяется ко всем чатам профиля.
+    /// применяется ко всем чатам профиля. После смены модуль присылает
+    /// актуальную историю открытого чата (`SetMessages`) и новый
+    /// `SetAccounts` с `active`.
     pub const ACCOUNT_SWITCH: &str = "__account.switch";
+    /// payload: `{"chat_id": "..."}`. Запрос списка аккаунтов, могущих
+    /// писать в чат; ответ — [`crate::model::UiCmd::SetAccountChoices`].
+    pub const ACCOUNT_LIST: &str = "__account.list";
     /// payload: `{"button": "<ComposerButton.id>", "chat_id": "..."}`.
     /// Нажатие кнопки модуля в поле ввода.
     pub const COMPOSER_BUTTON: &str = "__composer.button";

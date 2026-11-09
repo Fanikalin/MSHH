@@ -17,13 +17,18 @@ use std::ffi::c_void;
 /// v2: `mshh_module_start(host, profile)`, экспорт `mshh_module_settings`,
 /// событие `Ev::Settings`, `Session::profile()`; разрешены несколько
 /// экземпляров одной библиотеки (профили).
-/// v3: `ChatView::kind` (`ChatKind`) и `ChatView::avatar` ([`Avatar`]),
+/// v3: `ChatView::kind` ([`ChatKind`]) и `ChatView::avatar` ([`Avatar`]),
 /// `AccountView::active/avatar`, `UiCmd::SearchResults` +
 /// `actions::SEARCH_QUERY` (поиск по чатам модуля), `UiCmd::SetChatHeader`
 /// (строка собеседника над чатом), `UiCmd::SetComposerButtons` +
 /// `actions::ACCOUNT_SWITCH`/`COMPOSER_BUTTON` (кружок аккаунта и кнопки
 /// модуля в поле ввода).
-pub const ABI_VERSION: u32 = 3;
+/// v4: `Body::Image` получил `path` (локальный файл картинки/стикера/gif —
+/// ядро рендерит настоящие изображения), `UiCmd::SetAccountChoices` +
+/// `actions::ACCOUNT_LIST` — пикер аккаунта показывает только тех, кто
+/// может писать в открытый чат; после `ACCOUNT_SWITCH` модуль присылает
+/// актуальную историю чата для выбранного аккаунта.
+pub const ABI_VERSION: u32 = 4;
 
 pub mod log_level {
     pub const ERROR: u32 = 0;
