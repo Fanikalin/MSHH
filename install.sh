@@ -6,7 +6,7 @@
 # (голый `curl ... | sh` тоже работает — скрипт пересоздаёт себя во temp-файл)
 #
 # Скрипт: ставит тулчейн (Arch — нативный `rust` из pacman, Bazzite и другие
-# атомарные Fedora — Homebrew, остальные — rustup),
+# атомарные Fedora — сборка в контейнере distrobox, остальные — rustup),
 # клонирует репозиторий, собирает release, кладёт бинарник в ~/.local/bin/mshh
 # и модули в ~/.local/share/mshh/modules. Повторный запуск = обновление.
 #
@@ -55,41 +55,45 @@ need_pkgs() {
 }
 
 # Bazzite и другие атомарные Fedora (Silverblue, Bluefin): хост immutable,
-# ставим через предустановленный Homebrew — без rpm-ostree и перезагрузки.
+# без gcc и crt1.o — тулчейн на хост не ставим. Сборка идёт в контейнере
+# distrobox (на Bazzite предустановлен): $HOME общий, glibc бокса не выше
+# хостовой, поэтому бинарник запускается на хосте. Без rpm-ostree и перезагрузки.
 is_bazzite() {
   grep -qi '^ID=bazzite' /etc/os-release 2>/dev/null && return 0
   [ -e /run/ostree-booted ] && grep -qi '^ID_LIKE=.*fedora' /etc/os-release 2>/dev/null
 }
 
-ensure_brew() {
-  if command -v brew >/dev/null 2>&1; then
-    return 0
-  elif [ -x "$HOME/.linuxbrew/bin/brew" ]; then
-    eval "$("$HOME/.linuxbrew/bin/brew" shellenv)"
-  elif [ -x /home/linuxbrew/.linuxbrew/bin/brew ]; then
-    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-  else
-    say "==> Homebrew не найден, ставим"
-    NONINTERACTIVE=1 /bin/bash -c "$(
-      curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh
-    )" || return 1
-    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-  fi
-}
+BOX_NAME="${MSHH_BOX:-mshh-build}"
+BOX_IMAGE="${MSHH_BOX_IMAGE:-ubuntu:24.04}"
 
-install_toolchain_bazzite() {
-  say "==> Bazzite/атомарная Fedora: ставим тулчейн через Homebrew"
-  ensure_brew || { say "!! Не удалось установить Homebrew"; exit 1; }
-  brew install rust
-  command -v git >/dev/null 2>&1 || brew install git
-  if ! command -v cc >/dev/null 2>&1 && ! command -v gcc >/dev/null 2>&1; then
-    # postinstall gcc может споткнуться об отсутствие /usr/bin/cc — это не фатально
-    brew install gcc || say "!! brew install gcc: предупреждение postinstall, продолжаем"
+prepare_build_box() {
+  command -v distrobox >/dev/null 2>&1 || {
+    say "!! distrobox не найден. На Bazzite он предустановлен;"
+    say "   на других атомарных Fedora: flatpak install --system com.github.89luca89.distrobox"
+    exit 1
+  }
+  if ! distrobox list --no-color 2>/dev/null | grep -qw "$BOX_NAME"; then
+    say "==> Создаём сборочный контейнер distrobox: $BOX_NAME ($BOX_IMAGE)"
+    distrobox create --name "$BOX_NAME" --image "$BOX_IMAGE" --yes
   fi
-  if ! command -v cc >/dev/null 2>&1 && command -v gcc >/dev/null 2>&1; then
-    export CC=gcc  # crate `cc` ищет исполняемый `cc`; у brew — `gcc`
-  fi
-  command -v cargo >/dev/null 2>&1 || { say "!! cargo недоступен после brew install rust"; exit 1; }
+  say "==> Тулчейн внутри $BOX_NAME"
+  distrobox enter --name "$BOX_NAME" -- bash -euc '
+    command -v cargo >/dev/null 2>&1 && exit 0
+    if command -v apt-get >/dev/null 2>&1; then
+      export DEBIAN_FRONTEND=noninteractive
+      sudo apt-get update -y
+      sudo apt-get install -y build-essential curl git ca-certificates
+    elif command -v dnf >/dev/null 2>&1; then
+      sudo dnf install -y gcc gcc-c++ make curl git
+    elif command -v pacman >/dev/null 2>&1; then
+      sudo pacman -S --needed --noconfirm base-devel curl git
+    else
+      echo "!! В контейнере нет известного пакетного менеджера" >&2
+      exit 1
+    fi
+    curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+    command -v "$HOME/.cargo/bin/cargo" >/dev/null 2>&1
+  '
 }
 
 install_toolchain() {
@@ -115,7 +119,7 @@ install_toolchain() {
 }
 
 if is_bazzite; then
-  install_toolchain_bazzite
+  prepare_build_box
 else
   if ! command -v cargo >/dev/null 2>&1; then
     install_toolchain
@@ -135,7 +139,17 @@ else
 fi
 
 say "==> Сборка (release)"
-( cd "$SRC_DIR" && cargo build --release -p mshh-core -p mshh-module-echo )
+if is_bazzite; then
+  MSHH_SRC_DIR="$SRC_DIR" distrobox enter --name "$BOX_NAME" -- bash -euc '
+    export PATH="$HOME/.cargo/bin:$PATH"
+    [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+    command -v cargo >/dev/null 2>&1 || { echo "!! cargo недоступен внутри контейнера" >&2; exit 1; }
+    cd "$MSHH_SRC_DIR"
+    cargo build --release -p mshh-core -p mshh-module-echo
+  '
+else
+  ( cd "$SRC_DIR" && cargo build --release -p mshh-core -p mshh-module-echo )
+fi
 
 mkdir -p "$BIN_DIR" "$MODULES_DIR"
 cp -f "$SRC_DIR/target/release/mshh" "$BIN_DIR/mshh"

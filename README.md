@@ -25,10 +25,11 @@ sh -c "$(curl -fsSL https://raw.githubusercontent.com/Fanikalin/MSHH/main/instal
 > файл, чтобы порождённые процессы (brew/git) не съели остаток из stdin.
 
 Linux. На Arch ставит нативный `rust` из pacman, на Bazzite и других атомарных
-Fedora (Silverblue, Bluefin) — через предустановленный Homebrew, на остальных
-дистрибутивах — rustup. Собирает release-бинарник, кладёт `~/.local/bin/mshh` и модуль `echo` в
+Fedora (Silverblue, Bluefin) хост immutable — сборка идёт в контейнере
+distrobox (предустановлен на Bazzite), на остальных дистрибутивах — rustup. Собирает release-бинарник, кладёт `~/.local/bin/mshh` и модуль `echo` в
 `~/.local/share/mshh/modules`. Повторный запуск — обновление. Пути можно
-переопределить: `MSHH_INSTALL_DIR`, `MSHH_BIN_DIR`, `MSHH_MODULES_DIR`.
+переопределить: `MSHH_INSTALL_DIR`, `MSHH_BIN_DIR`, `MSHH_MODULES_DIR`,
+`MSHH_BOX`, `MSHH_BOX_IMAGE` (имя и образ сборочного контейнера distrobox).
 
 ## Сборка и запуск
 
