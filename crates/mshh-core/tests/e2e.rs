@@ -56,8 +56,8 @@ fn echo_roundtrip_and_persistence() {
     );
 
     // 2. Отправка -> эхо.
-    rt.send_action(
-        "echo",
+    rt.send_to_profile(
+        "p_echo",
         Ev::UiAction {
             action: actions::COMPOSER_SEND.into(),
             chat_id: Some("local".into()),

@@ -6,6 +6,6 @@ use mshh_module_api::model::UiCmd;
 pub enum Event {
     /// Ввод пользователя (клавиатура, мышь, resize).
     Input(TermEvent),
-    /// Команда отображения от модуля.
-    Ui { module: String, cmd: UiCmd },
+    /// Команда отображения от экземпляра модуля (профиль).
+    Ui { profile: String, cmd: UiCmd },
 }

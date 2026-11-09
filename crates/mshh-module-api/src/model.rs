@@ -20,6 +20,9 @@ pub enum Ev {
     Started,
     /// Действие пользователя в оболочке. Имена — [`actions`] или свои.
     UiAction { action: String, chat_id: Option<ChatId>, payload: Json },
+    /// Значения настроек профиля (map key->value, строки). Приходит после
+    /// `Started` и при каждом сохранении в «Настройках».
+    Settings { values: Json },
     /// Ядро завершается: модуль должен выйти из `run`.
     Shutdown,
 }

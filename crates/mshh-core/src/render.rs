@@ -8,7 +8,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, List, ListItem, Paragraph};
 use ratatui::Frame;
 
-use crate::app::{App, Focus, TOAST_TTL};
+use crate::app::{App, Focus, SettingsRow, TOAST_TTL};
 use crate::ratings::RatingColor;
 
 fn muted() -> Style {
@@ -28,7 +28,9 @@ pub fn draw(f: &mut Frame, app: &App) {
     .split(cols[1]);
     draw_messages(f, app, right[0]);
     draw_composer(f, app, right[1]);
-    draw_status(f, app, right[2]);
+    if app.display.hints_bar {
+        draw_status(f, app, right[2]);
+    }
 
     if app.login.is_some() {
         draw_login(f, app, area);
@@ -39,24 +41,33 @@ pub fn draw(f: &mut Frame, app: &App) {
     if let Some(i) = app.trust_facts {
         draw_facts(f, app, area, i);
     }
+    if app.settings_open {
+        draw_settings(f, app, area);
+    }
     draw_toast(f, app, area);
 }
 
 fn draw_sidebar(f: &mut Frame, app: &App, area: Rect) {
-    let acc_h = (app.accounts.len() as u16).clamp(1, 6) + 2;
-    let rows = Layout::vertical([Constraint::Length(acc_h), Constraint::Fill(1)]).split(area);
-
     let acc_items: Vec<ListItem> = app
         .accounts
         .iter()
-        .map(|a| {
+        .map(|(profile, a)| {
             ListItem::new(Line::from(vec![
                 Span::styled(a.name.clone(), Style::new().add_modifier(Modifier::BOLD)),
+                Span::styled(format!(" · {profile}"), muted()),
                 Span::raw(" "),
                 Span::styled(a.status.clone(), muted()),
             ]))
         })
         .collect();
+    let acc_items = if acc_items.is_empty() {
+        vec![ListItem::new(Line::styled("нет аккаунтов", muted()))]
+    } else {
+        acc_items
+    };
+    let acc_h = acc_items.len() as u16 + 2;
+    let acc_h = acc_h.clamp(3, 8);
+    let rows = Layout::vertical([Constraint::Length(acc_h), Constraint::Fill(1)]).split(area);
     let acc_list = List::new(acc_items).block(
         Block::default()
             .borders(Borders::ALL)
@@ -79,8 +90,10 @@ fn draw_sidebar(f: &mut Frame, app: &App, area: Rect) {
             } else {
                 spans.push(Span::raw(c.title.clone()));
             }
-            if let Some(sub) = &c.subtitle {
-                spans.push(Span::styled(format!(" — {sub}"), muted()));
+            if app.display.chat_subtitles {
+                if let Some(sub) = &c.subtitle {
+                    spans.push(Span::styled(format!(" — {sub}"), muted()));
+                }
             }
             let mut item = ListItem::new(Line::from(spans));
             if app.selected.as_deref() == Some(c.id.as_str()) && app.focus == Focus::Chats {
@@ -121,7 +134,7 @@ fn draw_messages(f: &mut Frame, app: &App, area: Rect) {
     let mut lines: Vec<Line> = Vec::new();
     if let Some(chat) = app.selected.as_ref() {
         if let Some(msgs) = app.messages.get(chat) {
-            lines.extend(msgs.iter().map(msg_line));
+            lines.extend(msgs.iter().map(|m| msg_line(m, app.display.msg_time, app.display.time_24h)));
             if let Some(p) = app.presence.get(chat) {
                 if !p.is_empty() {
                     lines.push(Line::styled(p.clone(), Style::new().fg(Color::Cyan)));
@@ -147,10 +160,15 @@ fn draw_messages(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(Paragraph::new(lines[start..end].to_vec()), inner);
 }
 
-fn msg_line(m: &MessageView) -> Line<'static> {
-    let time = chrono::DateTime::from_timestamp_millis(m.ts_ms as i64)
-        .map(|d| d.with_timezone(&chrono::Local).format("%H:%M").to_string())
-        .unwrap_or_default();
+fn msg_line(m: &MessageView, show_time: bool, time_24h: bool) -> Line<'static> {
+    let time = if show_time {
+        let fmt = if time_24h { "%H:%M" } else { "%I:%M %p" };
+        chrono::DateTime::from_timestamp_millis(m.ts_ms as i64)
+            .map(|d| d.with_timezone(&chrono::Local).format(fmt).to_string())
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
     let body = match &m.body {
         Body::Text(t) => t.clone(),
         Body::Image { alt } => format!("[изображение: {alt}]"),
@@ -191,11 +209,14 @@ fn draw_composer(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_status(f: &mut Frame, app: &App, area: Rect) {
-    let hint = "Ctrl+Q выход · Tab фокус · Enter открыть/отправить · PgUp/PgDn история";
+    let hint = "Ctrl+Q выход · Tab фокус · Enter открыть/отправить · PgUp/PgDn история · s настройки · m доверие";
     let line = Line::from(vec![
         Span::styled(hint, muted()),
         Span::raw("  "),
-        Span::styled(format!("модулей: {}", app.module_count), muted()),
+        Span::styled(
+            format!("профилей: {} · модулей: {}", app.profile_count, app.module_count),
+            muted(),
+        ),
     ]);
     f.render_widget(Paragraph::new(line), area);
 }
@@ -377,6 +398,116 @@ fn draw_facts(f: &mut Frame, app: &App, area: Rect, index: usize) {
     lines.push(Line::styled("Esc — назад · PgUp/PgDn — прокрутка", muted()));
     let start = (app.trust_scroll as usize).min(lines.len().saturating_sub(1));
     f.render_widget(Paragraph::new(lines[start..].to_vec()), inner);
+}
+
+/// Прямоугольник окна настроек (для хит-теста мыши).
+pub fn settings_area(area: Rect) -> Rect {
+    let h = (area.height * 7 / 10).clamp(10, area.height.max(10));
+    let w = 80.min(area.width.saturating_sub(2)).max(30);
+    centered(w, h, area)
+}
+
+fn draw_settings(f: &mut Frame, app: &App, area: Rect) {
+    let rect = settings_area(area);
+    f.render_widget(Clear, rect);
+    let title = match app.settings_screen_name() {
+        "main" => " Настройки · s/Esc закрыть · Enter — изменить ".to_string(),
+        "add" => " Новый профиль: выберите модуль ".to_string(),
+        _ => match app.profiles.get(app.settings_profile_idx()) {
+            Some(p) => format!(" Профиль: {} ({}) ", p.name, p.module),
+            None => " Профиль ".to_string(),
+        },
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::new().fg(Color::Cyan))
+        .title(title);
+    let inner = block.inner(rect);
+    f.render_widget(block, rect);
+
+    let mut lines: Vec<Line> = Vec::new();
+    for (i, row) in app.settings_rows_ref().iter().enumerate() {
+        let selected = i == app.settings_sel();
+        let cur = if selected { "> " } else { "  " };
+        let mut spans: Vec<Span> = Vec::new();
+        match row {
+            SettingsRow::Header(t) => {
+                spans.push(Span::styled(t.clone(), Style::new().add_modifier(Modifier::BOLD)));
+            }
+            SettingsRow::Toggle { label, value, .. } => {
+                spans.push(Span::raw(format!("{cur}{label} ")));
+                spans.push(Span::styled(
+                    if *value { "вкл" } else { "выкл" }.to_string(),
+                    Style::new().fg(if *value { Color::Green } else { Color::DarkGray }),
+                ));
+            }
+            SettingsRow::Profile { text, enabled, .. } => {
+                spans.push(Span::raw(format!("{cur}{text} ")));
+                spans.push(Span::styled(
+                    if *enabled { "вкл" } else { "выкл" }.to_string(),
+                    Style::new().fg(if *enabled { Color::Green } else { Color::DarkGray }),
+                ));
+            }
+            SettingsRow::AddProfile => {
+                spans.push(Span::styled(
+                    format!("{cur}+ Добавить профиль"),
+                    Style::new().fg(Color::Cyan),
+                ));
+            }
+            SettingsRow::ModulePick { text, .. } => {
+                spans.push(Span::raw(format!("{cur}{text}")));
+            }
+            SettingsRow::Back => {
+                spans.push(Span::raw(format!("{cur}← Назад")));
+            }
+            SettingsRow::Rename => {
+                spans.push(Span::raw(format!("{cur}Имя — изменить (Enter)")));
+            }
+            SettingsRow::Enable { enabled } => {
+                spans.push(Span::raw(format!("{cur}Включён ")));
+                spans.push(Span::styled(
+                    if *enabled { "вкл" } else { "выкл" }.to_string(),
+                    Style::new().fg(if *enabled { Color::Green } else { Color::DarkGray }),
+                ));
+            }
+            SettingsRow::ModuleSetting { field: _, label, value, secret } => {
+                let shown = if *secret { "•".repeat(value.chars().count()) } else { value.clone() };
+                spans.push(Span::raw(format!("{cur}{label} ")));
+                spans.push(Span::styled(
+                    if shown.is_empty() { "(не задано)".to_string() } else { shown },
+                    muted(),
+                ));
+            }
+            SettingsRow::Restart => {
+                spans.push(Span::raw(format!("{cur}Перезапустить профиль")));
+            }
+            SettingsRow::Delete { armed } => {
+                let label = if *armed {
+                    "Удалить профиль — Enter ЕЩЁ РАЗ для подтверждения!"
+                } else {
+                    "Удалить профиль"
+                };
+                spans.push(Span::styled(
+                    format!("{cur}{label}"),
+                    Style::new().fg(Color::Red),
+                ));
+            }
+        }
+        let mut line = Line::from(spans);
+        if selected {
+            line = line.style(Style::new().bg(Color::DarkGray));
+        }
+        lines.push(line);
+    }
+    if let Some(input) = app.settings_input_ref() {
+        lines.push(Line::from(vec![
+            Span::styled(format!("{}: ", input.label), Style::new().fg(Color::Cyan)),
+            Span::raw(format!("{}▌", input.buffer)),
+            Span::styled("  (Enter — сохранить · Esc — отмена)", muted()),
+        ]));
+    }
+    f.render_widget(Paragraph::new(lines), inner);
 }
 
 fn color_of_points(points: i32) -> Color {

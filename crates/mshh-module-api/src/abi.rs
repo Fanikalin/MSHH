@@ -13,7 +13,11 @@ use std::ffi::c_void;
 
 /// Версия ABI. Ядро не загружает модули с другой версией
 /// (`mshh_abi_version() != ABI_VERSION` -> отказ).
-pub const ABI_VERSION: u32 = 1;
+///
+/// v2: `mshh_module_start(host, profile)`, экспорт `mshh_module_settings`,
+/// событие `Ev::Settings`, `Session::profile()`; разрешены несколько
+/// экземпляров одной библиотеки (профили).
+pub const ABI_VERSION: u32 = 2;
 
 pub mod log_level {
     pub const ERROR: u32 = 0;
@@ -124,4 +128,5 @@ pub mod exports {
     pub const MODULE_RUN: &str = "mshh_module_run";
     pub const EVENT_SINK: &str = "mshh_module_event_sink";
     pub const MODULE_DESTROY: &str = "mshh_module_destroy";
+    pub const MODULE_SETTINGS: &str = "mshh_module_settings";
 }

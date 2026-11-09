@@ -17,11 +17,18 @@ use crate::model::{Ev, Row, SqlValue, UiCmd};
 pub struct Session {
     rx: Receiver<Ev>,
     host: *const MshhHostVTable,
+    profile: String,
 }
 
 impl Session {
-    pub(crate) fn new(rx: Receiver<Ev>, host: *const MshhHostVTable) -> Self {
-        Self { rx, host }
+    pub(crate) fn new(rx: Receiver<Ev>, host: *const MshhHostVTable, profile: String) -> Self {
+        Self { rx, host, profile }
+    }
+
+    /// Идентификатор профиля ядра. Используй для изоляции таблиц:
+    /// `mod_<id>_<profile>_...` — у двух профилей одного модуля общая БД.
+    pub fn profile(&self) -> &str {
+        &self.profile
     }
 
     // ---------- события ядра ----------

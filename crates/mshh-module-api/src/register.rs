@@ -1,7 +1,6 @@
 //! Трейт модуля и генерация экспортов ABI (макрос [`register_module!`]).
 
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
 
@@ -13,12 +12,20 @@ use crate::session::Session;
 /// получения `Ev::Shutdown` (или закрытия канала).
 pub trait Module: Send + Sync + 'static {
     fn run(&self, session: Session);
+
+    /// Схема настроек профиля: показывается в «Настройки → профиль» ядра.
+    /// Значения приходят событием `Ev::Settings` и меняются без перезапуска.
+    fn settings_schema(&self) -> Vec<crate::model::FieldDef> {
+        Vec::new()
+    }
 }
 
 /// Состояние одного экземпляра модуля; живёт в куче, ядро владеет
 /// сырым указателем между `mshh_module_start` и `mshh_module_destroy`.
 pub struct Instance<M: Module> {
     pub module: M,
+    /// Идентификатор профиля ядра; живёт столько же, сколько экземпляр.
+    pub profile: String,
     pub tx: Sender<Ev>,
     /// Receiver забирается ровно один раз — в `mshh_module_run`.
     pub rx: std::sync::Mutex<Option<Receiver<Ev>>>,
@@ -33,21 +40,22 @@ fn lock<'a, T>(m: &'a std::sync::Mutex<T>) -> std::sync::MutexGuard<'a, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// Тело `mshh_module_start`.
+/// Тело `mshh_module_start`. Начиная с ABI v2 одна библиотека может
+/// порождать несколько экземпляров (профили) одновременно.
 ///
 /// # Safety
 /// `host` должен быть валидным указателем от ядра.
 pub unsafe fn start<M: Module + Default>(
-    active: &AtomicBool,
     host: *const MshhHostVTable,
+    profile: &str,
 ) -> *mut c_void {
-    // Одна загруженная библиотека — один активный экземпляр.
-    if host.is_null() || active.swap(true, Ordering::SeqCst) {
+    if host.is_null() {
         return std::ptr::null_mut();
     }
     let (tx, rx) = unbounded::<Ev>();
     let inst = Box::new(Instance::<M> {
         module: M::default(),
+        profile: profile.to_string(),
         tx,
         rx: std::sync::Mutex::new(Some(rx)),
         host,
@@ -67,7 +75,7 @@ pub unsafe fn run<M: Module + Default>(handle: *mut c_void) {
     let Some(rx) = lock(&inst.rx).take() else {
         return;
     };
-    let session = Session::new(rx, inst.host);
+    let session = Session::new(rx, inst.host, inst.profile.clone());
     // Паника не должна пересекать границу extern "C".
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| inst.module.run(session)));
 }
@@ -122,7 +130,8 @@ pub unsafe fn destroy<M: Module + Default>(handle: *mut c_void) {
 /// ```
 ///
 /// Требования: тип реализует `Module + Default`; макрос вызывается в корне
-/// крейта. Одна библиотека — один активный экземпляр.
+/// крейта. С ABI v2 одна библиотека может порождать несколько экземпляров
+/// (профили) одновременно.
 #[macro_export]
 macro_rules! register_module {
     ($module_ty:ty, id: $id:expr, name: $name:expr, version: $version:expr) => {
@@ -132,7 +141,15 @@ macro_rules! register_module {
             version: $crate::abi::MshhStr::from_static($version),
         };
 
-        static _MSHH_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        /// JSON-схема настроек; строится один раз, живёт до конца процесса.
+        static _MSHH_SETTINGS: std::sync::LazyLock<std::ffi::CString> = std::sync::LazyLock::new(|| {
+            let module = <$module_ty as std::default::Default>::default();
+            let schema = $crate::register::Module::settings_schema(&module);
+            std::ffi::CString::new(
+                serde_json::to_string(&schema).unwrap_or_else(|_| "[]".to_string()),
+            )
+            .unwrap_or_else(|_| std::ffi::CString::new("[]").expect("const"))
+        });
 
         #[no_mangle]
         pub extern "C" fn mshh_abi_version() -> u32 {
@@ -144,11 +161,19 @@ macro_rules! register_module {
             &_MSHH_INFO
         }
 
+        /// Настройки профиля: null-terminated JSON `Vec<FieldDef>`.
+        #[no_mangle]
+        pub extern "C" fn mshh_module_settings() -> *const std::os::raw::c_char {
+            _MSHH_SETTINGS.as_ptr()
+        }
+
         #[no_mangle]
         pub extern "C" fn mshh_module_start(
             host: *const $crate::abi::MshhHostVTable,
+            profile: $crate::abi::MshhStr,
         ) -> *mut std::ffi::c_void {
-            unsafe { $crate::register::start::<$module_ty>(&_MSHH_ACTIVE, host) }
+            let profile = unsafe { profile.as_str() };
+            unsafe { $crate::register::start::<$module_ty>(host, profile) }
         }
 
         #[no_mangle]
@@ -166,7 +191,6 @@ macro_rules! register_module {
 
         #[no_mangle]
         pub extern "C" fn mshh_module_destroy(handle: *mut std::ffi::c_void) {
-            _MSHH_ACTIVE.store(false, std::sync::atomic::Ordering::SeqCst);
             unsafe { $crate::register::destroy::<$module_ty>(handle) }
         }
     };

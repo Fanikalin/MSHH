@@ -1,11 +1,11 @@
 //! Пример модуля MSHH: локальный «протокол»-эхо.
-//! Демонстрирует полный цикл: схему БД, восстановление истории,
-//! отправку/приём сообщений, стандартные действия оболочки.
+//! Демонстрирует полный цикл ABI v2: схему БД с изоляцией по профилю,
+//! настройки профиля, восстановление истории, стандартные действия.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use mshh_module_api::model::{
-    actions, AccountView, Body, ChatView, Ev, MessageView, Row, SqlValue, UiCmd,
+    actions, AccountView, Body, ChatView, Ev, FieldDef, MessageView, Row, SqlValue, UiCmd,
 };
 use mshh_module_api::prelude::*;
 use mshh_module_api::register::Module;
@@ -21,11 +21,16 @@ impl Module for Echo {
     fn run(&self, s: Session) {
         s.info(TAG, "запуск");
 
-        // Схема модуля: таблицы с префиксом mod_<id>_ (правило docs/MODULES.md).
+        // Таблицы с суффиксом профиля: у двух профилей общая БД ядра.
+        let table = format!("mod_echo_{}_messages", s.profile());
+        let mut settings = Settings::load(&s);
+
         if let Err(e) = s.storage_exec(
-            "CREATE TABLE IF NOT EXISTS mod_echo_messages (\
-             id TEXT PRIMARY KEY, chat_id TEXT NOT NULL, sender TEXT NOT NULL, \
-             out INTEGER NOT NULL, ts_ms INTEGER NOT NULL, text TEXT NOT NULL)",
+            &format!(
+                "CREATE TABLE IF NOT EXISTS {table} (\
+                 id TEXT PRIMARY KEY, chat_id TEXT NOT NULL, sender TEXT NOT NULL, \
+                 out INTEGER NOT NULL, ts_ms INTEGER NOT NULL, text TEXT NOT NULL)"
+            ),
             &[],
         ) {
             s.error(TAG, &format!("не удалось создать схему: {e}"));
@@ -33,13 +38,17 @@ impl Module for Echo {
         }
 
         push_ui(&s);
-        push_history(&s);
+        push_history(&s, &table);
 
         loop {
             match s.recv() {
                 Some(Ev::Started) => {
                     push_ui(&s);
-                    push_history(&s);
+                    push_history(&s, &table);
+                }
+                Some(Ev::Settings { values }) => {
+                    settings.apply(&s, &values);
+                    s.info(TAG, "настройки профиля применены");
                 }
                 Some(Ev::UiAction { action, chat_id, payload }) => {
                     if action != actions::COMPOSER_SEND {
@@ -55,15 +64,72 @@ impl Module for Echo {
                     if text.trim().is_empty() {
                         continue;
                     }
-                    store_and_show(&s, &chat, true, "Вы", text);
+                    store_and_show(&s, &table, &chat, true, "Вы", text);
                     // «Сеть»: задержка и ответ удалённой стороны.
-                    s.sleep(std::time::Duration::from_millis(300));
-                    store_and_show(&s, &chat, false, "Echo", &format!("Эхо: {text}"));
+                    s.sleep(std::time::Duration::from_millis(settings.delay_ms));
+                    store_and_show(&s, &table, &chat, false, "Echo", &settings.echo_of(text));
                 }
                 Some(Ev::Shutdown) | None => break,
             }
         }
         s.info(TAG, "остановка");
+    }
+
+    fn settings_schema(&self) -> Vec<FieldDef> {
+        vec![
+            FieldDef {
+                id: "echo_template".into(),
+                label: "Шаблон ответа ({text})".into(),
+                secret: false,
+                value: "Эхо: {text}".into(),
+            },
+            FieldDef {
+                id: "delay_ms".into(),
+                label: "Задержка ответа, мс".into(),
+                secret: false,
+                value: "300".into(),
+            },
+        ]
+    }
+}
+
+/// Значения настроек профиля; обновляются событием Ev::Settings на лету.
+struct Settings {
+    template: String,
+    delay_ms: u64,
+}
+
+impl Settings {
+    fn load(s: &Session) -> Self {
+        let template =
+            s.kv_get("echo_template").ok().flatten().unwrap_or_else(|| "Эхо: {text}".into());
+        let delay_ms = s
+            .kv_get("delay_ms")
+            .ok()
+            .flatten()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(300);
+        Settings { template, delay_ms }
+    }
+
+    /// Применить значения из ядра (строки) и зафиксировать в kv.
+    fn apply(&mut self, s: &Session, values: &serde_json::Value) {
+        if let Some(t) = values.get("echo_template").and_then(|v| v.as_str()) {
+            if !t.is_empty() {
+                self.template = t.to_string();
+                let _ = s.kv_set("echo_template", t);
+            }
+        }
+        if let Some(d) = values.get("delay_ms").and_then(|v| v.as_str()) {
+            if let Ok(ms) = d.parse::<u64>() {
+                self.delay_ms = ms;
+                let _ = s.kv_set("delay_ms", d);
+            }
+        }
+    }
+
+    fn echo_of(&self, text: &str) -> String {
+        self.template.replace("{text}", text)
     }
 }
 
@@ -81,10 +147,12 @@ fn push_ui(s: &Session) {
     }]));
 }
 
-fn push_history(s: &Session) {
+fn push_history(s: &Session, table: &str) {
     let Ok(rows) = s.storage_exec(
-        "SELECT id, chat_id, sender, out, ts_ms, text \
-         FROM mod_echo_messages ORDER BY ts_ms ASC, id ASC",
+        &format!(
+            "SELECT id, chat_id, sender, out, ts_ms, text \
+             FROM {table} ORDER BY ts_ms ASC, id ASC"
+        ),
         &[],
     ) else {
         return;
@@ -127,13 +195,15 @@ fn as_int(v: &SqlValue) -> Option<i64> {
     }
 }
 
-fn store_and_show(s: &Session, chat: &str, out: bool, sender: &str, text: &str) {
+fn store_and_show(s: &Session, table: &str, chat: &str, out: bool, sender: &str, text: &str) {
     static SEQ: AtomicU64 = AtomicU64::new(0);
     let ts = s.now_ms();
     let id = format!("m{}-{}", ts, SEQ.fetch_add(1, Ordering::Relaxed));
     let _ = s.storage_exec(
-        "INSERT INTO mod_echo_messages (id, chat_id, sender, out, ts_ms, text) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        &format!(
+            "INSERT INTO {table} (id, chat_id, sender, out, ts_ms, text) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)"
+        ),
         &[
             SqlValue::Text(id.clone()),
             SqlValue::Text(chat.into()),

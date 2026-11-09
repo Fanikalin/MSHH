@@ -1,12 +1,14 @@
 //! Загрузка cdylib-модулей: сканирование каталогов, ABI-хендшейк, символы.
 
 use std::collections::HashSet;
-use std::ffi::c_void;
+use std::ffi::{c_void, CStr};
+use std::os::raw::c_char;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use libloading::{Library, Symbol};
 use mshh_module_api::abi::{exports, MshhHostVTable, MshhModuleInfo, MshhStr, ABI_VERSION};
+use mshh_module_api::model::FieldDef;
 
 /// Загруженные библиотеки живут до конца процесса: dlclose Rust-cdylib
 /// небезопасен — libc остаётся с зарегистрированными модулем TLS/atexit
@@ -21,16 +23,19 @@ pub struct ModuleInfoOwned {
     pub version: String,
 }
 
-type StartFn = unsafe extern "C" fn(*const MshhHostVTable) -> *mut c_void;
+type StartFn = unsafe extern "C" fn(*const MshhHostVTable, MshhStr) -> *mut c_void;
 pub type RunFn = unsafe extern "C" fn(*mut c_void);
 type SinkFn = unsafe extern "C" fn(*mut c_void, MshhStr) -> u32;
 type DestroyFn = unsafe extern "C" fn(*mut c_void);
 
-/// Загруженная библиотека модуля: сырые символы + метаданные. Сам `Library`
-/// хранится в `LOADED_LIBS` и не выгружается до конца процесса.
+/// Загруженная библиотека модуля: сырые символы + метаданные + схема настроек.
+/// Сам `Library` хранится в `LOADED_LIBS` и не выгружается до конца процесса.
+#[derive(Clone)]
 pub struct ModuleLib {
     pub info: ModuleInfoOwned,
     pub path: PathBuf,
+    /// Схема настроек профиля (пустая, если экспорт не реализован).
+    pub settings: Vec<FieldDef>,
     pub start: StartFn,
     pub run: RunFn,
     pub sink: SinkFn,
@@ -72,10 +77,32 @@ impl ModuleLib {
             let destroy: DestroyFn =
                 *lib.get::<DestroyFn>(exports::MODULE_DESTROY.as_bytes()).map_err(missing)?;
 
+            // Опциональный экспорт схемы настроек (ABI v2).
+            let settings = match lib.get::<unsafe extern "C" fn() -> *const c_char>(
+                exports::MODULE_SETTINGS.as_bytes(),
+            ) {
+                Ok(f) => {
+                    let p = f();
+                    if p.is_null() {
+                        Vec::new()
+                    } else {
+                        let s = CStr::from_ptr(p).to_string_lossy();
+                        serde_json::from_str(&s).unwrap_or_else(|e| {
+                            crate::logger::warn(
+                                "core",
+                                &format!("{}: settings schema: {e}", info.id),
+                            );
+                            Vec::new()
+                        })
+                    }
+                }
+                Err(_) => Vec::new(),
+            };
+
             // Библиотека не выгружается никогда (см. LOADED_LIBS).
             LOADED_LIBS.lock().unwrap_or_else(|e| e.into_inner()).push(lib);
 
-            Ok(ModuleLib { info, path: path.to_path_buf(), start, run, sink, destroy })
+            Ok(ModuleLib { info, path: path.to_path_buf(), settings, start, run, sink, destroy })
         }
     }
 }
