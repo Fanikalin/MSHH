@@ -16,7 +16,7 @@ import { useSelectedRoom } from '../../app/hooks/router/useSelectedRoom';
 import { NavCategory, NavCategoryHeader, NavItem, NavButton, NavItemContent } from '../../app/components/nav';
 import { RoomAvatar } from '../../app/components/room-avatar';
 import { UnreadBadge, UnreadBadgeCenter } from '../../app/components/unread-badge';
-import { useMatrixClient } from '../../app/hooks/useMatrixClient';
+import { useMatrixClient, useMxOptional } from '../../app/hooks/useMatrixClient';
 import { useMediaAuthentication } from '../../app/hooks/useMediaAuthentication';
 import { useRoomUnread } from '../../app/state/hooks/unread';
 import { roomToUnreadAtom } from '../../app/state/room/roomToUnread';
@@ -284,7 +284,7 @@ type UnifiedRow = {
 };
 
 export function UnifiedChats({ sortedRoomIds }: { sortedRoomIds: string[] }) {
-  const mx = useMatrixClient();
+  const mx = useMxOptional();
   const profiles = useAtomValue(profilesAtom);
   const chatsByProfile = useAtomValue(mshhChatsAtom);
   const [openChat, setOpenChat] = useAtom(openMshhChatAtom);
@@ -292,7 +292,7 @@ export function UnifiedChats({ sortedRoomIds }: { sortedRoomIds: string[] }) {
   const selectedModules = useAtomValue(selectedModuleIdsAtom);
 
   const matrixProfile = useMemo(
-    () => profiles.find((p) => p.id === matrixProfileId(mx.getUserId() ?? '')),
+    () => (mx ? profiles.find((p) => p.id === matrixProfileId(mx.getUserId() ?? '')) : undefined),
     [profiles, mx]
   );
 
@@ -303,7 +303,7 @@ export function UnifiedChats({ sortedRoomIds }: { sortedRoomIds: string[] }) {
     const moduleVisible = (moduleId: string) =>
       selectedModules.size === 0 || selectedModules.has(moduleId);
 
-    if (matrixProfile && profileVisible(matrixProfile.id) && moduleVisible(MATRIX_MODULE_ID)) {
+    if (mx && matrixProfile && profileVisible(matrixProfile.id) && moduleVisible(MATRIX_MODULE_ID)) {
       for (const roomId of sortedRoomIds) {
         const room = mx.getRoom(roomId);
         if (!room) continue;

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Box, Button, Spinner, Text, color, config } from 'folds';
-import { useMatrixClient } from '../../../hooks/useMatrixClient';
+import { useMxOptional } from '../../../hooks/useMatrixClient';
 import { Modal500 } from '../../../components/Modal500';
 import * as api from '../../../../mshh/api';
 import { mshhErrorMessage, refreshProfiles } from '../../../../mshh/state';
@@ -12,7 +12,7 @@ type DeleteProfileDialogProps = {
 };
 
 export function DeleteProfileDialog({ profile, requestClose }: DeleteProfileDialogProps) {
-  const mx = useMatrixClient();
+  const mx = useMxOptional();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -22,7 +22,7 @@ export function DeleteProfileDialog({ profile, requestClose }: DeleteProfileDial
     setError(undefined);
     try {
       await api.deleteProfile(profile.id);
-      await refreshProfiles(mx.getUserId() ?? undefined);
+      await refreshProfiles(mx?.getUserId() ?? undefined);
       requestClose();
     } catch (e) {
       setError(mshhErrorMessage(e));

@@ -10,3 +10,8 @@ export function useMatrixClient(): MatrixClient {
   if (!mx) throw new Error('MatrixClient not initialized!');
   return mx;
 }
+
+export function useMxOptional(): MatrixClient | undefined {
+  const mx = useContext(MatrixClientContext);
+  return mx ?? undefined;
+}

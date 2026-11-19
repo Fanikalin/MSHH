@@ -7,6 +7,9 @@ export type LoginPathSearchParams = {
 };
 export const LOGIN_PATH = '/login/:server?/';
 
+/** MSHH launch shell: profile manager + module chats, no matrix session required. */
+export const MSHH_LAUNCH_PATH = '/mshh/';
+
 export type RegisterPathSearchParams = {
   username?: string;
   email?: string;

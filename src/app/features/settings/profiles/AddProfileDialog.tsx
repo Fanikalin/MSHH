@@ -1,7 +1,7 @@
 import React, { FormEventHandler, useState } from 'react';
 import { Avatar, Box, Button, Input, Spinner, Text, color, config, toRem } from 'folds';
 import { useAtomValue } from 'jotai';
-import { useMatrixClient } from '../../../hooks/useMatrixClient';
+import { useMxOptional } from '../../../hooks/useMatrixClient';
 import { Modal500 } from '../../../components/Modal500';
 import { ContainerColor } from '../../../styles/ContainerColor.css';
 import * as api from '../../../../mshh/api';
@@ -63,10 +63,11 @@ function ModuleCard({
 
 type AddProfileDialogProps = {
   requestClose: () => void;
+  onMatrixLogin?: () => void;
 };
 
-export function AddProfileDialog({ requestClose }: AddProfileDialogProps) {
-  const mx = useMatrixClient();
+export function AddProfileDialog({ requestClose, onMatrixLogin }: AddProfileDialogProps) {
+  const mx = useMxOptional();
   const modules = useAtomValue(modulesAtom);
   const selectableModules = modules.filter((m) => m.side === 'main');
   const matrixModule = modules.find((m) => m.id === MATRIX_MODULE_ID);
@@ -113,7 +114,7 @@ export function AddProfileDialog({ requestClose }: AddProfileDialogProps) {
         }
       }
       await api.connectProfile(id);
-      await refreshProfiles(mx.getUserId() ?? undefined);
+      await refreshProfiles(mx?.getUserId() ?? undefined);
       requestClose();
     } catch (e) {
       setError(mshhErrorMessage(e));
@@ -133,7 +134,14 @@ export function AddProfileDialog({ requestClose }: AddProfileDialogProps) {
             {selectableModules.map((m) => (
               <ModuleCard key={m.id} module={m} onSelect={() => handlePickModule(m)} />
             ))}
-            {matrixModule && <ModuleCard module={matrixModule} disabled caption="используйте вход Matrix" />}
+            {matrixModule && (
+              <ModuleCard
+                module={matrixModule}
+                disabled={!onMatrixLogin}
+                caption={onMatrixLogin ? 'вход через Matrix' : 'используйте вход Matrix'}
+                onSelect={onMatrixLogin}
+              />
+            )}
           </Box>
           {selectableModules.length === 0 && (
             <Text size="T300" priority="300">

@@ -15,6 +15,7 @@ import {
   EXPLORE_PATH,
   HOME_PATH,
   LOGIN_PATH,
+  MSHH_LAUNCH_PATH,
   INBOX_PATH,
   REGISTER_PATH,
   RESET_PASSWORD_PATH,
@@ -68,6 +69,7 @@ import { Create } from './client/create';
 import { CreateSpaceModalRenderer } from '../features/create-space';
 import { SearchModalRenderer } from '../features/search';
 import { getFallbackSession } from '../state/sessions';
+import { MshhLaunch } from '../../mshh/components/MshhLaunch';
 import { CallStatusRenderer } from './CallStatusRenderer';
 import { CallEmbedProvider } from '../components/CallEmbedProvider';
 
@@ -83,8 +85,21 @@ export const createRouter = (clientConfig: ClientConfig, screenSize: ScreenSize)
           if (getFallbackSession()) return redirect(getHomePath());
           const afterLoginPath = getAppPathFromHref(getOriginBaseUrl(), window.location.href);
           if (afterLoginPath) setAfterLoginRedirectPath(afterLoginPath);
-          return redirect(getLoginPath());
+          return redirect(MSHH_LAUNCH_PATH);
         }}
+      />
+      <Route
+        path={MSHH_LAUNCH_PATH}
+        loader={() => {
+          if (getFallbackSession()) return redirect(getHomePath());
+          return null;
+        }}
+        element={
+          <>
+            <MshhLaunch />
+            <UnAuthRouteThemeManager />
+          </>
+        }
       />
       <Route
         loader={() => {
@@ -115,7 +130,7 @@ export const createRouter = (clientConfig: ClientConfig, screenSize: ScreenSize)
               window.location.href
             );
             if (afterLoginPath) setAfterLoginRedirectPath(afterLoginPath);
-            return redirect(getLoginPath());
+            return redirect(MSHH_LAUNCH_PATH);
           }
           return null;
         }}

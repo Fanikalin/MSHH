@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Avatar, Box, Button, Chip, Icon, IconButton, Icons, Scroll, Switch, Text, color, toRem } from 'folds';
 import { useAtomValue } from 'jotai';
-import { useMatrixClient } from '../../../hooks/useMatrixClient';
+import { useMxOptional } from '../../../hooks/useMatrixClient';
 import { Page, PageContent, PageHeader } from '../../../components/page';
 import { SequenceCard } from '../../../components/sequence-card';
 import { SettingTile } from '../../../components/setting-tile';
@@ -60,9 +60,15 @@ function ProfileAvatar({ moduleName }: { moduleName: string }) {
   );
 }
 
-function ProfilesContent({ requestClose }: { requestClose: () => void }) {
-  const mx = useMatrixClient();
-  const userId = mx.getUserId() ?? undefined;
+function ProfilesContent({
+	requestClose,
+	onMatrixLogin,
+}: {
+	requestClose?: () => void;
+	onMatrixLogin?: () => void;
+}) {
+  const mx = useMxOptional();
+  const userId = mx?.getUserId() ?? undefined;
   const modules = useAtomValue(modulesAtom);
   const profiles = useAtomValue(profilesAtom);
   const statuses = useAtomValue(profileStatusAtom);
@@ -100,11 +106,13 @@ function ProfilesContent({ requestClose }: { requestClose: () => void }) {
               Профили
             </Text>
           </Box>
-          <Box shrink="No">
-            <IconButton onClick={requestClose} variant="Surface">
-              <Icon src={Icons.Cross} />
-            </IconButton>
-          </Box>
+          {requestClose && (
+            <Box shrink="No">
+              <IconButton onClick={requestClose} variant="Surface">
+                <Icon src={Icons.Cross} />
+              </IconButton>
+            </Box>
+          )}
         </Box>
       </PageHeader>
       <Box grow="Yes">
@@ -232,7 +240,12 @@ function ProfilesContent({ requestClose }: { requestClose: () => void }) {
         </Scroll>
       </Box>
 
-      {adding && <AddProfileDialog requestClose={() => setAdding(false)} />}
+      {adding && (
+        <AddProfileDialog
+          requestClose={() => setAdding(false)}
+          onMatrixLogin={onMatrixLogin}
+        />
+      )}
       {editing && (
         <EditProfileDialog
           profile={editing}
@@ -256,13 +269,14 @@ function ProfilesContent({ requestClose }: { requestClose: () => void }) {
 }
 
 type ProfilesProps = {
-  requestClose: () => void;
+  requestClose?: () => void;
+  onMatrixLogin?: () => void;
 };
 
-export function Profiles({ requestClose }: ProfilesProps) {
+export function Profiles({ requestClose, onMatrixLogin }: ProfilesProps) {
   return (
     <MshhStoreProvider>
-      <ProfilesContent requestClose={requestClose} />
+      <ProfilesContent requestClose={requestClose} onMatrixLogin={onMatrixLogin} />
     </MshhStoreProvider>
   );
 }

@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { getDefaultStore, useAtomValue } from 'jotai';
 import { Box, Text, config, toRem } from 'folds';
-import { useMatrixClient } from '../app/hooks/useMatrixClient';
+import { useMxOptional } from '../app/hooks/useMatrixClient';
 import { ContainerColor } from '../app/styles/ContainerColor.css';
 import * as api from './api';
 import {
@@ -68,7 +68,7 @@ function MshhToasts() {
  * The event subscription itself is refcounted in state.ts.
  */
 export function MshhStoreProvider({ children }: { children: React.ReactNode }) {
-  const mx = useMatrixClient();
+  const mx = useMxOptional();
 
   useEffect(() => {
     const detach = attachMshhEvents();
@@ -76,7 +76,7 @@ export function MshhStoreProvider({ children }: { children: React.ReactNode }) {
 
     const init = async () => {
       await refreshModules();
-      await refreshProfiles(mx.getUserId() ?? undefined);
+      await refreshProfiles(mx?.getUserId() ?? undefined);
       if (cancelled) return;
       const profiles = getDefaultStore().get(profilesAtom);
       await Promise.all(

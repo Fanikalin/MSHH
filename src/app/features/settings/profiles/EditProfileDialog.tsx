@@ -1,6 +1,6 @@
 import React, { FormEventHandler, useState } from 'react';
 import { Box, Button, Input, Spinner, Text, color, config } from 'folds';
-import { useMatrixClient } from '../../../hooks/useMatrixClient';
+import { useMxOptional } from '../../../hooks/useMatrixClient';
 import { Modal500 } from '../../../components/Modal500';
 import * as api from '../../../../mshh/api';
 import { mshhErrorMessage, refreshProfiles } from '../../../../mshh/state';
@@ -31,7 +31,7 @@ type EditProfileDialogProps = {
 };
 
 export function EditProfileDialog({ profile, module, requestClose }: EditProfileDialogProps) {
-  const mx = useMatrixClient();
+  const mx = useMxOptional();
   const fields = module?.profileFields ?? [];
   const [name, setName] = useState(profile.name);
   const [values, setValues] = useState<ProfileFieldValues>(() => prefillValues(module, profile));
@@ -70,7 +70,7 @@ export function EditProfileDialog({ profile, module, requestClose }: EditProfile
       // Reconnect so the host restarts the client with fresh config.
       await api.disconnectProfile(profile.id).catch(() => undefined);
       await api.connectProfile(profile.id);
-      await refreshProfiles(mx.getUserId() ?? undefined);
+      await refreshProfiles(mx?.getUserId() ?? undefined);
       requestClose();
     } catch (e) {
       setError(mshhErrorMessage(e));
