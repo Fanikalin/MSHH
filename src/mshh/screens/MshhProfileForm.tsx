@@ -20,7 +20,7 @@ import { Page, PageHeader } from '../../app/components/page';
 import { NavItem } from '../../app/components/nav';
 import { getMshhPath, getMshhProfilesPath } from '../../app/pages/pathUtils';
 import { api } from '../api';
-import { clearPrompt, moduleDefaultsAtom, profilesAtom, promptsAtom, modulesAtom } from '../state';
+import { clearPrompt, establishedProfiles, moduleDefaultsAtom, profilesAtom, promptsAtom, modulesAtom } from '../state';
 import { ModuleField } from '../types';
 import { StatusDot, profileStatusText } from '../components/StatusDot';
 import { PromptDialog } from './PromptDialog';
@@ -174,6 +174,28 @@ export function MshhProfileForm() {
           await api.connectProfile(createdId);
         }
       } else {
+        // Возобновление: если профиль этого модуля уже застрял на авторизации
+        // (error/connecting — прошлые попытки), продолжаем его, а не плодим дубликаты.
+        const stuck = profiles.find(
+          (p) =>
+            p.moduleId === manifest.id &&
+            !establishedProfiles([p]).length &&
+            (p.status === 'error' || p.status === 'connecting')
+        );
+        if (stuck) {
+          setCreatedId(stuck.id);
+          const nextConfig = buildConfig();
+          const changed = JSON.stringify(nextConfig) !== JSON.stringify(stuck.config);
+          if (changed || name.trim()) {
+            await api.updateProfile(stuck.id, {
+              name: name.trim() || stuck.name,
+              config: changed || Object.keys(nextConfig).length ? nextConfig : stuck.config,
+            });
+          }
+          await api.disconnectProfile(stuck.id);
+          await api.connectProfile(stuck.id);
+          return;
+        }
         const created = await api.createProfile(
           manifest.id,
           name.trim() || manifest.name,
