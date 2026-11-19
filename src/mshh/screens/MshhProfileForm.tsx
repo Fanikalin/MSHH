@@ -255,6 +255,16 @@ export function MshhProfileForm() {
     ownerPrompt?.payload.kind === 'qr' && ownerPrompt.payload.qrBase64
       ? `data:image/png;base64,${ownerPrompt.payload.qrBase64}`
       : undefined;
+  // отказ от QR: отвечаем модулю пустым значением — он уйдёт во вход по коду
+  const cancelQrPrompt = async () => {
+    if (!ownerId || !ownerPrompt) return;
+    try {
+      await api.respondPrompt(ownerId, ownerPrompt.payload.promptId, '');
+    } catch {
+      /* промпт уже закрылся */
+    }
+    clearPrompt(ownerId, ownerPrompt.payload.promptId);
+  };
 
   const retryConnect = async () => {
     const id = createdId ?? profileId;
@@ -507,6 +517,11 @@ export function MshhProfileForm() {
                         </Text>
                       </>
                     )}
+                    <Button size="300" fill="Soft" onClick={() => cancelQrPrompt()}>
+                      <Text as="span" size="B300">
+                        Войти по коду (SMS)
+                      </Text>
+                    </Button>
                   </Box>
                 )}
               </Box>
