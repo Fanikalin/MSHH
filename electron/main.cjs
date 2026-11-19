@@ -167,7 +167,7 @@ app.whenReady().then(async () => {
   store = new ProfileStore(app.getPath('userData'), modules);
   manager = new RunnerManager({ store, userDataDir: app.getPath('userData'), repoRoot: REPO_ROOT, bus, log });
   manager.setModules(modules);
-  registerIpc({ ipcMain, store, manager, bus, getWin: () => win, appVersion: APP_VERSION });
+  registerIpc({ ipcMain, store, manager, bus, getWin: () => win, appVersion: APP_VERSION, log });
 
   log(
     'info',

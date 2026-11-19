@@ -5,7 +5,7 @@
 const { dialog, shell } = require('electron');
 const fs = require('node:fs');
 
-function registerIpc({ ipcMain, store, manager, bus, getWin, appVersion }) {
+function registerIpc({ ipcMain, store, manager, bus, getWin, appVersion, log }) {
   const wrap = (fn) => async (_event, payload) => {
     try {
       return { ok: true, data: (await fn(payload)) ?? null };
