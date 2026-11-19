@@ -45,6 +45,7 @@ const RECONNECT_BASE_MS = 5000;
 const RECONNECT_MAX_MS = 300000;
 const PROMPT_TIMEOUT_MS = 300000;
 const QR_PROMPT_MS = 30000; // совпадает с QR_CODE_TIMEOUT GramJS — обновление QR каждые 30с
+const QR_LOGIN_ATTEMPTS = 20; // свежий QR на каждый истёкший токен (~15 минут суммарно)
 
 /** Пользователь отказался от QR-входа («Отмена» / пустой ввод) → вход по коду. */
 class QrCancelled extends Error {}
@@ -676,53 +677,64 @@ function create(ctx) {
   }
 
   /** QR-вход через встроенный helper GramJS: телефон не нужен.
-   *  Отказ пользователя → QrCancelled (authFlow переключится на код). */
+   *  Отказ пользователя → QrCancelled (authFlow переключится на код).
+   *  Истёкший QR-токен (AUTH_TOKEN_EXPIRED) → свежий QR, до QR_LOGIN_ATTEMPTS раз. */
   async function qrLogin(client, creds) {
-    try {
-      await client.signInUserWithQrCode(creds, {
-        qrCode: async ({ token }) => {
-          const png = await QRCode.toBuffer(tgQrUrl(token), { type: 'png', margin: 1, width: 512 });
-          // Таймаут промпта длиннее внутреннего цикла GramJS (30с): цикл всегда
-          // «выигрывает гонку» и сам перезапрашивает QR с новым токеном —
-          // иначе промпт-таймаут роняет весь вход.
-          const promptPromise = ctx.prompt({
-            kind: 'qr',
-            qr: png,
-            title: 'Вход по QR',
-            detail: 'Отсканируйте в Telegram: Настройки → Устройства → Связать устройство',
-            timeoutMs: QR_PROMPT_MS + 5000,
-          });
-          promptPromise.catch(() => {}); // поздний таймаут не должен стать unhandled
-          const answer = await Promise.race([
-            promptPromise,
-            new Promise((resolve) => setTimeout(() => resolve({ refreshed: true }), QR_PROMPT_MS)),
-          ]);
-          if (answer?.refreshed) return; // GramJS перезапустит цикл с новым токеном
-          if (!answer || answer.value === undefined) throw new QrCancelled();
-          // иное разрешение (таймаут формы) — просто ждём следующий QR-токен
-        },
-        password: async (hint) => {
-          const pwdAnswer = await ctx.prompt({
-            kind: 'text',
-            title: 'Облачный пароль',
-            detail: `На аккаунте включена двухфакторная аутентификация${hint ? ` (подсказка: ${hint})` : ''}`,
-            timeoutMs: PROMPT_TIMEOUT_MS,
-          });
-          const password = String(pwdAnswer?.value ?? '');
-          if (!password) throw new QrCancelled();
-          return password;
-        },
-        onError: async (err) => {
-          if (err instanceof QrCancelled) return true;
-          ctxLog('warn', `qr-вход: ${err?.errorMessage || err?.message}`);
-          return false;
-        },
-      });
-    } catch (e) {
-      if (e instanceof QrCancelled) throw e;
-      if (String(e?.message) === 'AUTH_USER_CANCEL') throw new QrCancelled();
-      throw friendlyError(e, 'Telegram: вход по QR не выполнен');
+    for (let attempt = 1; attempt <= QR_LOGIN_ATTEMPTS; attempt++) {
+      try {
+        await client.signInUserWithQrCode(creds, {
+          qrCode: async ({ token }) => {
+            const png = await QRCode.toBuffer(tgQrUrl(token), { type: 'png', margin: 1, width: 512 });
+            // Таймаут промпта длиннее внутреннего цикла GramJS (30с): цикл всегда
+            // «выигрывает гонку» и сам перезапрашивает QR с новым токеном —
+            // иначе промпт-таймаут роняет весь вход.
+            const promptPromise = ctx.prompt({
+              kind: 'qr',
+              qr: png,
+              title: 'Вход по QR',
+              detail: 'Отсканируйте в Telegram: Настройки → Устройства → Связать устройство',
+              timeoutMs: QR_PROMPT_MS + 5000,
+            });
+            promptPromise.catch(() => {}); // поздний таймаут не должен стать unhandled
+            const answer = await Promise.race([
+              promptPromise,
+              new Promise((resolve) => setTimeout(() => resolve({ refreshed: true }), QR_PROMPT_MS)),
+            ]);
+            if (answer?.refreshed) return; // GramJS перезапустит цикл с новым токеном
+            if (!answer || answer.value === undefined) throw new QrCancelled();
+            // иное разрешение (таймаут формы) — просто ждём следующий QR-токен
+          },
+          password: async (hint) => {
+            const pwdAnswer = await ctx.prompt({
+              kind: 'text',
+              title: 'Облачный пароль',
+              detail: `На аккаунте включена двухфакторная аутентификация${hint ? ` (подсказка: ${hint})` : ''}`,
+              timeoutMs: PROMPT_TIMEOUT_MS,
+            });
+            const password = String(pwdAnswer?.value ?? '');
+            if (!password) throw new QrCancelled();
+            return password;
+          },
+          onError: async (err) => {
+            if (err instanceof QrCancelled) return true;
+            ctxLog('warn', `qr-вход: ${err?.errorMessage || err?.message}`);
+            return false;
+          },
+        });
+        return;
+      } catch (e) {
+        if (e instanceof QrCancelled) throw e;
+        if (String(e?.message) === 'AUTH_USER_CANCEL') throw new QrCancelled();
+        const errText = String(e?.errorMessage || e?.message || '');
+        // истёкший токен / гонка внутри хелпера — не ошибка: новый QR, новая попытка
+        if (/AUTH_TOKEN_EXPIRED|Unexpected|SESSION_TOKEN/i.test(errText)) {
+          ctxLog('warn', `QR-попытка ${attempt} не удалась (${errText}) — свежий QR`);
+          continue;
+        }
+        throw friendlyError(e, 'Telegram: вход по QR не выполнен');
+      }
     }
+    throw new QrCancelled();
   }
 
   async function authFlow(client, creds, phone) {
