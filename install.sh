@@ -53,8 +53,19 @@ EOF
 
 need() { command -v "$1" >/dev/null 2>&1 || die "Не найдена утилита «$1». Установите её и повторите."; }
 
-as_root() {
-	if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi
+can_write_in() { # can_write_in <dir> — true, если dir (или ближайший существующий предок) доступен на запись
+	local d="$1"
+	while [ ! -d "$d" ]; do
+		d="$(dirname "$d")"
+		[ "$d" = "/" ] && break
+	done
+	[ -w "$d" ]
+}
+
+as_root() { # as_root <целевой каталог> <команда...> — sudo только если цель недоступна без прав root
+	local target="$1"
+	shift
+	if [ "$(id -u)" -eq 0 ] || can_write_in "$target"; then "$@"; else sudo "$@"; fi
 }
 
 fetch() { # fetch <url> <файл назначения>
@@ -99,22 +110,22 @@ install_app() { # install_app <каталог со собранным прило
 	need install
 
 	info "Установка приложения в $APP_DIR..."
-	as_root mkdir -p "$MSHH_DIR"
-	as_root rm -rf "$APP_DIR"
-	as_root cp -r "$src" "$APP_DIR"
+	as_root "$MSHH_DIR" mkdir -p "$MSHH_DIR"
+	as_root "$MSHH_DIR" rm -rf "$APP_DIR"
+	as_root "$MSHH_DIR" cp -r "$src" "$APP_DIR"
 
 	info "Установка лаунчера $LAUNCHER..."
-	as_root mkdir -p "$BIN_DIR"
+	as_root "$BIN_DIR" mkdir -p "$BIN_DIR"
 	sed "s|@INSTALL_DIR@|$MSHH_DIR|g" "$(template mshh-launcher)" >"$TMP/mshh-launcher.installed"
-	as_root install -m 755 "$TMP/mshh-launcher.installed" "$LAUNCHER"
+	as_root "$BIN_DIR" install -m 755 "$TMP/mshh-launcher.installed" "$LAUNCHER"
 
 	info "Установка ярлыка и иконки..."
-	as_root mkdir -p "$DESKTOP_DIR" "$ICON_DIR"
-	as_root install -m 644 "$(template mshh.desktop)" "$DESKTOP_FILE"
-	as_root install -m 644 "$(template mshh.svg)" "$ICON_FILE"
+	as_root "$DESKTOP_DIR" mkdir -p "$DESKTOP_DIR" "$ICON_DIR"
+	as_root "$DESKTOP_DIR" install -m 644 "$(template mshh.desktop)" "$DESKTOP_FILE"
+	as_root "$ICON_DIR" install -m 644 "$(template mshh.svg)" "$ICON_FILE"
 
 	if command -v update-desktop-database >/dev/null 2>&1; then
-		as_root update-desktop-database "$DESKTOP_DIR" >/dev/null 2>&1 || true
+		as_root "$DESKTOP_DIR" update-desktop-database "$DESKTOP_DIR" >/dev/null 2>&1 || true
 	fi
 
 	info "Готово. Запускайте командой «mshh» или через меню приложений («Mshh»)."
@@ -176,9 +187,10 @@ install_from_source() {
 
 uninstall() {
 	info "Удаляю MSHH..."
-	as_root rm -rf "$APP_DIR"
-	as_root rm -f "$LAUNCHER" "$DESKTOP_FILE" "$ICON_FILE"
-	as_root rmdir --ignore-fail-on-non-empty "$MSHH_DIR" 2>/dev/null || true
+	as_root "$MSHH_DIR" rm -rf "$APP_DIR"
+	as_root "$BIN_DIR" rm -f "$LAUNCHER"
+	as_root "$DESKTOP_DIR" rm -f "$DESKTOP_FILE" "$ICON_FILE"
+	as_root "$MSHH_DIR" rmdir --ignore-fail-on-non-empty "$MSHH_DIR" 2>/dev/null || true
 	info "MSHH удалена."
 
 	local d
