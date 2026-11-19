@@ -77,6 +77,7 @@ import { getFallbackSession } from '../state/sessions';
 import { CallStatusRenderer } from './CallStatusRenderer';
 import { CallEmbedProvider } from '../components/CallEmbedProvider';
 import { MshhIndex, MshhHome, MshhChat, MshhProfiles, MshhProfileForm } from '../../mshh/screens';
+import { MshhEmpty } from '../../mshh/components/EmptyState';
 
 export const createRouter = (clientConfig: ClientConfig, screenSize: ScreenSize) => {
   const { hashRouter } = clientConfig;
@@ -100,8 +101,11 @@ export const createRouter = (clientConfig: ClientConfig, screenSize: ScreenSize)
           </AuthRouteThemeManager>
         }
       >
-        <Route index element={<MshhHome />} />
-        <Route path={_MSHH_CHAT_PATH} element={<MshhChat />} />
+        {/* Chat list stays mounted: the chat route renders inside the right pane. */}
+        <Route element={<MshhHome />}>
+          <Route index element={<MshhEmpty />} />
+          <Route path={_MSHH_CHAT_PATH} element={<MshhChat />} />
+        </Route>
         <Route path={_MSHH_PROFILES_PATH} element={<MshhProfiles />} />
         <Route path={_MSHH_PROFILE_NEW_PATH} element={<MshhProfileForm />} />
         <Route path={_MSHH_PROFILE_EDIT_PATH} element={<MshhProfileForm />} />

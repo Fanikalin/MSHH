@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useAtom, useAtomValue } from 'jotai';
 import {
   Box,
+  Button,
   Chip,
   Icon,
   IconButton,
@@ -15,8 +16,10 @@ import {
   config,
   toRem,
 } from 'folds';
+import { isKeyHotkey } from 'is-hotkey';
 import { Page, PageHeader } from '../../app/components/page';
 import { ScreenSize, useScreenSizeContext } from '../../app/hooks/useScreenSize';
+import { useKeyDown } from '../../app/hooks/useKeyDown';
 import colorMXID from '../../util/colorMXID';
 import { getHomeRoomPath, getMshhPath } from '../../app/pages/pathUtils';
 import { api, mediaUrl } from '../api';
@@ -29,6 +32,7 @@ import {
   modulesAtom,
   openedChatAtom,
   profilesAtom,
+  promptsAtom,
   setMessages,
   typingAtom,
 } from '../state';
@@ -41,6 +45,7 @@ import {
 } from '../components/format';
 import { MshhAvatar } from '../components/MshhAvatar';
 import { StatusDot, profileStatusText } from '../components/StatusDot';
+import { EmptyState } from '../components/EmptyState';
 import { PromptDialog } from './PromptDialog';
 
 const HISTORY_LIMIT = 50;
@@ -209,17 +214,14 @@ export function MshhChat() {
   );
   const typing = key ? typingMap.get(key) : undefined;
   const typingActive = !!typing && typing.until > tick;
-
-  // Renderer-runtime Matrix chats never render here — native room view owns them.
-  useEffect(() => {
-    if (profile && profile.runtime === 'renderer' && profile.moduleId === 'matrix' && chatId) {
-      navigate(getHomeRoomPath(chatId), { replace: true });
-    }
-  }, [profile, chatId, navigate]);
+  const prompts = useAtomValue(promptsAtom);
+  // Renderer-runtime Matrix chats render as a stub here — the native room view
+  // stays reachable via the Cinny route; the list pane is never left.
+  const isMatrixRenderer = profile?.runtime === 'renderer' && profile.moduleId === 'matrix';
 
   // Mark open + read; publish the opened chat for bridges.
   useEffect(() => {
-    if (!profileId || !chatId) return undefined;
+    if (isMatrixRenderer || !profileId || !chatId) return undefined;
     setOpenedChat({ profileId, chatId });
     setHasMore(true);
     setLoadingOlder(false);
@@ -231,11 +233,12 @@ export function MshhChat() {
       /* ignore */
     });
     return () => setOpenedChat(null);
-  }, [profileId, chatId, setOpenedChat]);
+  }, [isMatrixRenderer, profileId, chatId, setOpenedChat]);
 
   // Initial page of history when the view holds no messages.
   useEffect(() => {
     if (!profileId || !chatId) return;
+    if (isMatrixRenderer) return;
     if (module?.capabilities?.history === false) return;
     if (getMessages(profileId, chatId).length > 0) return;
     const currentChatId = chatId;
@@ -254,13 +257,27 @@ export function MshhChat() {
       .catch(() => {
         /* ignore */
       });
-  }, [profileId, chatId, module]);
+  }, [isMatrixRenderer, profileId, chatId, module]);
 
   // Expire the typing indicator.
   useEffect(() => {
     const timer = setInterval(() => setTick(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // Escape returns to the chat list; an open auth prompt keeps its dialog in front.
+  useKeyDown(
+    window,
+    useCallback(
+      (evt: KeyboardEvent) => {
+        if (!isKeyHotkey('escape', evt)) return;
+        const hasPrompt = profileId ? prompts.has(profileId) : prompts.size > 0;
+        if (hasPrompt) return;
+        navigate(getMshhPath());
+      },
+      [navigate, profileId, prompts]
+    )
+  );
 
   // Keep pinned to bottom when near it; restore position after older pages prepend.
   useLayoutEffect(() => {
@@ -400,6 +417,48 @@ export function MshhChat() {
   }, [messages, failedIds]);
 
   if (!profileId || !chatId) return null;
+
+  if (isMatrixRenderer) {
+    return (
+      <Page>
+        <PageHeader outlined balance>
+          {isMobile && (
+            <Box shrink="No">
+              <IconButton
+                variant="Background"
+                fill="None"
+                onClick={() => navigate(getMshhPath())}
+                aria-label="Назад"
+              >
+                <Icon src={Icons.ArrowGoLeft} />
+              </IconButton>
+            </Box>
+          )}
+          <Box grow="Yes" direction="Column" gap="0" style={{ minWidth: 0 }}>
+            <Text size="H4" truncate>
+              {chat?.title || 'Матричный чат'}
+            </Text>
+            <Box alignItems="Center" gap="100">
+              {profile && <StatusDot status={profile.status} />}
+              <Text size="T200" priority="300" truncate>
+                {profile ? `${profile.name} · ${profile.moduleName}` : '…'}
+              </Text>
+            </Box>
+          </Box>
+        </PageHeader>
+        <EmptyState
+          title={chat?.title || 'Матричный чат'}
+          subtitle="Матричные чаты открываются в нативном клиенте Cinny"
+        >
+          <Button variant="Primary" onClick={() => navigate(getHomeRoomPath(chatId))}>
+            <Text as="span" size="B300">
+              Открыть в Cinny
+            </Text>
+          </Button>
+        </EmptyState>
+      </Page>
+    );
+  }
 
   return (
     <Page>
