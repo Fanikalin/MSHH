@@ -23,6 +23,31 @@
       "label": "API Hash",
       "type": "text",
       "help": "api_id с my.telegram.org; можно оставить по умолчанию"
+    },
+    {
+      "name": "proxyHost",
+      "label": "Прокси: адрес",
+      "type": "text",
+      "placeholder": "необязательно",
+      "help": "SOCKS5-прокси для соединения (если нужно)"
+    },
+    {
+      "name": "proxyPort",
+      "label": "Прокси: порт",
+      "type": "number",
+      "placeholder": "необязательно"
+    },
+    {
+      "name": "proxyUser",
+      "label": "Прокси: логин",
+      "type": "text",
+      "placeholder": "необязательно"
+    },
+    {
+      "name": "proxyPassword",
+      "label": "Прокси: пароль",
+      "type": "password",
+      "placeholder": "необязательно"
     }
   ],
   "capabilities": { "media": true, "history": true, "typing": true }

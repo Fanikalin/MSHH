@@ -203,6 +203,7 @@ function create(ctx) {
     _peerIndex: new Map(),   // 'u:<id>' | 'chat:<id>' | 'ch:<cid>' -> chatId
     _recentSent: new Map(),  // msgId -> ts (dedupe our own send updates)
     _mediaDir: path.join(ctx.dataDir, 'media'),
+    _avatarDir: path.join(ctx.dataDir, 'avatars'),
     _sessionPath: path.join(ctx.dataDir, 'session.string'),
   };
 
@@ -339,7 +340,36 @@ function create(ctx) {
       }
     }
     ctxLog('info', `синхронизировано чатов: ${emitted}`);
+    mod._lastDialogs = [...dialogs, ...archivedDialogs];
     return emitted;
+  }
+
+  /** Фоновая загрузка превью-картинок чатов (аватарки) в dataDir/avatars. */
+  async function downloadChatAvatars() {
+    const client = requireClient();
+    const dialogs = mod._lastDialogs || [];
+    fs.mkdirSync(mod._avatarDir, { recursive: true });
+    let done = 0;
+    for (const dialog of dialogs) {
+      if (done >= 60) break; // верхние 60 чатов — остальным хватит монограмм
+      try {
+        const entity = dialog.entity;
+        if (!entity || !entity.photo || !dialog.title) continue;
+        const idStr = String(entity.id);
+        if (!idStr || idStr === '0') continue;
+        const file = path.join(mod._avatarDir, `${idStr}.jpg`);
+        if (fs.existsSync(file)) continue;
+        const buf = await client.downloadMedia(entity.photo, { thumb: -1 });
+        if (!buf || !buf.length) continue;
+        fs.writeFileSync(file, buf);
+        const entry = chatFromDialog(dialog);
+        if (!entry) continue;
+        emitEvent('chat', { ...entry.chat, avatarPath: file });
+        done++;
+      } catch (e) {
+        ctxLog('warn', `аватар пропущен: ${e.message}`);
+      }
+    }
   }
 
   async function tryAccessHash(idStr) {
@@ -837,7 +867,7 @@ function create(ctx) {
 
     const saved = safe(() => fs.readFileSync(mod._sessionPath, 'utf8').trim(), '') || '';
 
-    const client = new TelegramClient(new StringSession(saved), creds.apiId, creds.apiHash, {
+    const clientParams = {
       connectionRetries: 3,
       retryDelay: 1000,
       requestRetries: 2,
@@ -847,7 +877,34 @@ function create(ctx) {
       systemVersion: `${os.platform()} ${os.release()}`,
       appVersion: '1.0.0',
       floodSleepThreshold: 60,
-    });
+    };
+    // SOCKS5-прокси из настроек модуля (опционально)
+    const proxyHost = String(ctx.config.proxyHost || '').trim();
+    const proxyPort = Number(ctx.config.proxyPort);
+    if (proxyHost && Number.isFinite(proxyPort) && proxyPort > 0) {
+      // быстрая проверка доступности: мёртвый прокси не должен вешать connect
+      await withDeadline(
+        new Promise((resolve, reject) => {
+          const net = require('node:net');
+          const sock = net.connect({ host: proxyHost, port: proxyPort, timeout: 4000 });
+          sock.once('connect', () => { sock.destroy(); resolve(true); });
+          sock.once('timeout', () => { sock.destroy(); reject(new Error('таймаут')); });
+          sock.once('error', (err) => reject(err));
+        }),
+        5000,
+        'Прокси недоступен',
+      ).catch((e) => {
+        throw new Error(`Прокси ${proxyHost}:${proxyPort} недоступен (${e.message}) — отключите прокси в настройках или укажите рабочий`);
+      });
+      clientParams.proxy = {
+        ip: proxyHost,
+        port: proxyPort,
+        socksType: 5,
+        user: String(ctx.config.proxyUser || '') || undefined,
+        pass: String(ctx.config.proxyPassword || '') || undefined,
+      };
+    }
+    const client = new TelegramClient(new StringSession(saved), creds.apiId, creds.apiHash, clientParams);
     mod._client = client;
     try { client.setLogLevel('none'); } catch { /* optional */ }
     mod._rawEvent = new Raw({});
@@ -890,6 +947,7 @@ function create(ctx) {
 
       // 4. initial sync + live loop
       await syncChats();
+      downloadChatAvatars(); // фон: превью-картинки чатов
       startWatchdog();
       emitStatus('online');
     } catch (e) {
