@@ -41,7 +41,9 @@ export function PromptDialog({ profileId }: PromptDialogProps) {
     answeredRef.current = false;
   }, [promptId]);
 
-  if (!prompt) return null;
+  // QR-подсказки рендерятся инлайн в форме профиля (рядом с телефоном),
+  // модалка — только для кода/текста.
+  if (!prompt || prompt.payload.kind === 'qr') return null;
   const { payload } = prompt;
 
   const respond = async (answer: string) => {

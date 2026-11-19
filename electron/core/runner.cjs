@@ -195,7 +195,7 @@ class ProfileRunner {
         this.prompts.delete(promptId);
         reject(new Error('время ожидания ввода истекло'));
       }, timeoutMs);
-      this.prompts.set(promptId, { resolve, timer });
+      this.prompts.set(promptId, { resolve, reject, timer });
       this.bus.emitModuleEvent(this.profile.id, 'prompt', {
         promptId,
         kind: req?.kind || 'text',

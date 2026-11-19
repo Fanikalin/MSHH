@@ -20,7 +20,7 @@ import { Page, PageHeader } from '../../app/components/page';
 import { NavItem } from '../../app/components/nav';
 import { getMshhPath, getMshhProfilesPath } from '../../app/pages/pathUtils';
 import { api } from '../api';
-import { moduleDefaultsAtom, modulesAtom, profilesAtom } from '../state';
+import { clearPrompt, moduleDefaultsAtom, profilesAtom, promptsAtom, modulesAtom } from '../state';
 import { ModuleField } from '../types';
 import { StatusDot, profileStatusText } from '../components/StatusDot';
 import { PromptDialog } from './PromptDialog';
@@ -77,6 +77,7 @@ export function MshhProfileForm() {
 
   const manifest = useMemo(() => modules.find((m) => m.id === moduleId), [modules, moduleId]);
   const moduleDefaults = useAtomValue(moduleDefaultsAtom);
+  const profilePrompts = useAtomValue(promptsAtom);
   const defaultsFor = useMemo(
     () => (moduleId ? moduleDefaults[moduleId] : undefined),
     [moduleDefaults, moduleId]
@@ -94,6 +95,35 @@ export function MshhProfileForm() {
 
   const setFieldValue = (fieldName: string, value: ConfigValue) =>
     setFormConfig((prev) => ({ ...prev, [fieldName]: value }));
+
+  /** Назад в форме добавления: к меню выбора модуля (без авторизации профиль
+   *  не создаёт поверхность чатов). Отменяет висящий QR/код-промпт. */
+  const goBack = async () => {
+    if (editing) {
+      navigate(getMshhProfilesPath());
+      return;
+    }
+    const ownerId = createdId ?? profileId;
+    if (ownerId) {
+      const pending = profilePrompts.get(ownerId);
+      if (pending) {
+        try {
+          await api.respondPrompt(ownerId, pending.payload.promptId, '');
+        } catch {
+          /* prompt уже закрылся — не мешает выходу */
+        }
+        clearPrompt(ownerId);
+      }
+    }
+    if (moduleId) {
+      setModuleId(null);
+      setName('');
+      setFormConfig({});
+      setError(null);
+      return;
+    }
+    navigate(getMshhPath());
+  };
 
   const buildConfig = (): ProfileConfig => {
     const result: ProfileConfig = {};
@@ -125,6 +155,36 @@ export function MshhProfileForm() {
     return missing;
   };
 
+  const connectOrCreate = async () => {
+    if (!manifest) return;
+    setBusy(true);
+    setError(null);
+    try {
+      if (createdId) {
+        const nextConfig = buildConfig();
+        const existing = profiles.find((p) => p.id === createdId);
+        const changed = !existing || JSON.stringify(nextConfig) !== JSON.stringify(existing.config);
+        if (changed) {
+          await api.updateProfile(createdId, { name, config: nextConfig });
+          await api.disconnectProfile(createdId);
+          await api.connectProfile(createdId);
+        }
+      } else {
+        const created = await api.createProfile(
+          manifest.id,
+          name.trim() || manifest.name,
+          buildConfig()
+        );
+        setCreatedId(created.id); // auth prompts (code/QR) now surface via PromptDialog
+        await api.connectProfile(created.id);
+      }
+    } catch (submitError) {
+      setError(errorMessage(submitError));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const submit = async () => {
     if (!manifest) return;
     const missing = firstMissingRequired();
@@ -146,14 +206,8 @@ export function MshhProfileForm() {
         }
         navigate(getMshhProfilesPath());
       } else {
-        const created = await api.createProfile(
-          manifest.id,
-          name.trim() || manifest.name,
-          buildConfig()
-        );
-        setCreatedId(created.id); // auth prompts (code/QR) now surface via PromptDialog
-        await api.connectProfile(created.id);
-        navigate(getMshhPath());
+        // остаёмся на форме: QR/статус подключения видны рядом с телефоном
+        await connectOrCreate();
       }
     } catch (submitError) {
       setError(errorMessage(submitError));
@@ -162,6 +216,42 @@ export function MshhProfileForm() {
     }
   };
 
+  // Профиль подключился (QR отсканирован / код введён) → в список чатов.
+  const createdProfile = !editing && createdId ? profiles.find((p) => p.id === createdId) : undefined;
+  useEffect(() => {
+    if (createdProfile?.status === 'online') navigate(getMshhPath());
+  }, [createdProfile?.status, createdProfile, navigate]);
+
+  // Репо-режим (ключи не вшиты): оба APP-поля заполнены корректно → через 1с
+  // после последнего ввода запускаем подключение, модуль выдаёт QR.
+  // Повторные автопопытки — не чаще раза в 2с.
+  const lastAutoConnectRef = useRef(0);
+  const autoReady = useMemo(() => {
+    if (editing || moduleId !== 'telegram' || defaultsFor) return false;
+    const id = String(formConfig.apiId ?? '').trim();
+    const hash = String(formConfig.apiHash ?? '').trim();
+    return /^\d+$/.test(id) && Number(id) > 0 && /^[0-9a-f]{32}$/i.test(hash);
+  }, [editing, moduleId, defaultsFor, formConfig]);
+
+  useEffect(() => {
+    if (!autoReady) return undefined;
+    const timer = setTimeout(() => {
+      if (Date.now() - lastAutoConnectRef.current < 2000) return;
+      lastAutoConnectRef.current = Date.now();
+      connectOrCreate();
+    }, 1000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoReady, formConfig]);
+
+  // QR из промпта модуля — инлайн, рядом с полем телефона
+  const ownerId = createdId ?? profileId;
+  const ownerPrompt = ownerId ? profilePrompts.get(ownerId) : undefined;
+  const qrImage =
+    ownerPrompt?.payload.kind === 'qr' && ownerPrompt.payload.qrBase64
+      ? `data:image/png;base64,${ownerPrompt.payload.qrBase64}`
+      : undefined;
+
   const retryConnect = async () => {
     const id = createdId ?? profileId;
     if (!id) return;
@@ -169,7 +259,7 @@ export function MshhProfileForm() {
     setError(null);
     try {
       await api.connectProfile(id);
-      navigate(editing ? getMshhProfilesPath() : getMshhPath());
+      if (editing) navigate(getMshhProfilesPath());
     } catch (connectError) {
       setError(errorMessage(connectError));
     } finally {
@@ -257,7 +347,7 @@ export function MshhProfileForm() {
           <IconButton
             variant="Background"
             fill="None"
-            onClick={() => navigate(editing ? getMshhProfilesPath() : getMshhPath())}
+            onClick={() => goBack()}
             aria-label="Назад"
           >
             <Icon src={Icons.ArrowGoLeft} />
@@ -348,6 +438,20 @@ export function MshhProfileForm() {
                 {(manifest?.fields ?? [])
                   .filter((field) => !defaultsFor || !(field.name in defaultsFor))
                   .map(renderField)}
+                {qrImage && (
+                  <Box direction="Column" alignItems="Center" gap="100">
+                    <img
+                      src={qrImage}
+                      alt="QR для входа в Telegram"
+                      width={220}
+                      height={220}
+                      style={{ borderRadius: config.radii.R300 }}
+                    />
+                    <Text size="T200" priority="300" align="Center">
+                      Отсканируйте в Telegram: Настройки → Устройства → Связать устройство
+                    </Text>
+                  </Box>
+                )}
                 {error && (
                   <Box direction="Column" gap="100">
                     <Text size="T200" style={{ color: color.Critical.Main }}>
@@ -387,7 +491,7 @@ export function MshhProfileForm() {
           </Box>
         </Scroll>
       </Box>
-      <PromptDialog profileId={createdId ?? profileId} />
+      {(moduleId || editing) && <PromptDialog profileId={createdId ?? profileId} />}
     </Page>
   );
 }

@@ -53,6 +53,8 @@ export type Profile = {
   lastError: string | null;
   runtime: 'main' | 'renderer';
   moduleName: string;
+  /** модуль ждёт ввод пользователя (QR/код) */
+  pendingPrompt?: boolean;
 };
 
 export type ModuleField = {

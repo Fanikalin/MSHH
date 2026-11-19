@@ -7,7 +7,7 @@ import { NavItem } from '../../app/components/nav';
 import { UnreadBadge } from '../../app/components/unread-badge/UnreadBadge';
 import { getHomeRoomPath, getMshhChatPath, getMshhProfileNewPath } from '../../app/pages/pathUtils';
 import { Chat } from '../types';
-import { chatsAtom, filtersAtom, modulesAtom, profilesAtom } from '../state';
+import { chatsAtom, establishedProfiles, filtersAtom, modulesAtom, profilesAtom } from '../state';
 import { formatListTime } from '../components/format';
 import { MshhAvatar } from '../components/MshhAvatar';
 import { StatusDot } from '../components/StatusDot';
@@ -49,6 +49,12 @@ export function MshhChatsNav() {
   const profiles = useAtomValue(profilesAtom);
   const modules = useAtomValue(modulesAtom);
   const [filters, setFilters] = useAtom(filtersAtom);
+  // чипсы фильтров — только для профилей, дошедших до рабочего состояния
+  const established = establishedProfiles(profiles);
+  const visibleModules = useMemo(
+    () => modules.filter((m) => established.some((p) => p.moduleId === m.id)),
+    [modules, established]
+  );
 
   const chats = useMemo(
     () => [...chatsMap.values()].sort((a, b) => (b.ts || 0) - (a.ts || 0)),
@@ -124,9 +130,9 @@ export function MshhChatsNav() {
                 variant="SurfaceVariant"
                 size="400"
               />
-              {modules.length > 0 && (
+              {visibleModules.length > 0 && (
                 <Box wrap="Wrap" gap="100">
-                  {modules.map((module) => (
+                  {visibleModules.map((module) => (
                     <FilterChip
                       key={module.id}
                       active={filters.moduleIds.includes(module.id)}
@@ -144,9 +150,9 @@ export function MshhChatsNav() {
                   ))}
                 </Box>
               )}
-              {profiles.length > 0 && (
+              {established.length > 0 && (
                 <Box wrap="Wrap" gap="100">
-                  {profiles.map((profile) => (
+                  {established.map((profile) => (
                     <FilterChip
                       key={profile.id}
                       active={filters.profileIds.includes(profile.id)}

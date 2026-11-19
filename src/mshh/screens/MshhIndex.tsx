@@ -2,7 +2,7 @@ import React from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Provider, getDefaultStore, useAtomValue } from 'jotai';
 import { Box, Spinner, Text, config, toRem } from 'folds';
-import { coreErrorAtom, coreReadyAtom, profilesAtom } from '../state';
+import { coreErrorAtom, coreReadyAtom, establishedProfiles, profilesAtom } from '../state';
 import { getMshhProfilesPath } from '../../app/pages/pathUtils';
 import { Welcome } from './Welcome';
 
@@ -18,6 +18,8 @@ function MshhGate() {
   const coreReady = useAtomValue(coreReadyAtom);
   const coreError = useAtomValue(coreErrorAtom);
   const location = useLocation();
+  // ошибочные/ещё не авторизованные профили поверхность чатов не открывают
+  const established = establishedProfiles(profiles);
 
   if (!coreReady) {
     return (
@@ -45,12 +47,12 @@ function MshhGate() {
     );
   }
 
-  // Zero profiles → welcome gate. Profile creation/editing stays reachable so the
-  // «Добавить профиль» button on the welcome screen actually opens the form.
-  if (profiles.length === 0 && location.pathname.startsWith(getMshhProfilesPath())) {
+  // Нет ни одного рабочего профиля → заглушка-приветствие. Формы добавления
+  // и менеджер профилей остаются доступны, чтобы профиль можно было создать.
+  if (established.length === 0 && location.pathname.startsWith(getMshhProfilesPath())) {
     return <Outlet />;
   }
-  if (profiles.length === 0) {
+  if (established.length === 0) {
     return <Welcome />;
   }
 

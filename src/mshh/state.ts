@@ -134,6 +134,12 @@ export function allChats(): Chat[] {
   return [...store.get(chatsAtom).values()].sort((a, b) => (b.ts || 0) - (a.ts || 0));
 }
 
+/** Профили, дошедшие хотя бы раз до рабочего состояния (online сейчас или ранее).
+ *  Ошибочные/подключающиеся аккаунты интерфейсом «существующими» не считаются. */
+export function establishedProfiles(profiles: Profile[]): Profile[] {
+  return profiles.filter((p) => p.status === 'online' || p.status === 'offline');
+}
+
 function handleEvent(event: MshhEvent) {
   switch (event.type) {
     case 'chat':

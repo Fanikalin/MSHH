@@ -29,6 +29,7 @@ function registerIpc({ ipcMain, store, manager, bus, getWin, appVersion }) {
       lastError: runner?.lastError || null,
       runtime: manager.moduleById(p.moduleId)?.manifest.runtime || 'main',
       moduleName: manager.moduleById(p.moduleId)?.manifest.name || p.moduleId,
+      pendingPrompt: !!runner?.prompts.size,
     };
   };
 
@@ -44,7 +45,9 @@ function registerIpc({ ipcMain, store, manager, bus, getWin, appVersion }) {
 
   ipcMain.handle('mshh:profiles.create', wrap(async ({ moduleId, name, config }) => {
     const profile = store.create({ moduleId, name, config, enabled: true });
-    if (profile.enabled) await manager.ensureRunner(profile);
+    // подключение — в фоне: connect() может висеть на QR/код-промпте до минуты,
+    // IPC не должен блокироваться; статус и промпты уходят событиями
+    if (profile.enabled) manager.ensureRunner(profile).catch(() => {});
     bus.emitStateDirty();
     return profileState(profile);
   }));
@@ -58,9 +61,9 @@ function registerIpc({ ipcMain, store, manager, bus, getWin, appVersion }) {
     if (!profile.enabled) {
       if (runner) await manager.stopRunner(id);
     } else if (configChanged && runner && !runner.rendererDriven) {
-      await runner.restart();
+      runner.restart().catch(() => {});
     } else if (!runner || (!runner.rendererDriven && runner.status === 'error')) {
-      await manager.ensureRunner(profile);
+      manager.ensureRunner(profile).catch(() => {});
     }
     bus.emitStateDirty();
     void module_;
@@ -81,9 +84,10 @@ function registerIpc({ ipcMain, store, manager, bus, getWin, appVersion }) {
     const module_ = manager.moduleById(profile.moduleId);
     if (!module_) throw new Error(`Модуль «${profile.moduleId}» не установлен`);
     if (module_.manifest.runtime === 'renderer') return { renderer: true };
-    await manager.ensureRunner(profile);
     const runner = manager.runnerFor(id);
-    return { status: runner.status, lastError: runner.lastError };
+    // не ждём connect(): он может висеть на QR/код-промпте; статус придёт событием
+    manager.ensureRunner(profile).catch(() => {});
+    return { status: runner?.status || 'connecting', lastError: runner?.lastError || null };
   }));
 
   ipcMain.handle('mshh:profiles.disconnect', wrap(async ({ id }) => {
