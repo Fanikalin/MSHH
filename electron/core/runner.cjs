@@ -21,7 +21,7 @@ class ProfileRunner {
     this.chats = new Map(); // chatId -> Chat
     this.recent = new Map(); // chatId -> Message[]
     this.prompts = new Map(); // promptId -> { resolve, reject, timer }
-    this.earlyResponses = new Map(); // ответ интерфейса, пришедший до появления промпта
+    this.previewAdopt = null; // колбэк: авторизованная preview-сессия → настоящий профиль
     this.openChatId = null; // chat currently open in UI → no unread bump
     this.api = null;
     this.stopped = false;
@@ -95,7 +95,19 @@ class ProfileRunner {
     this.status = state;
     if (state === 'online') this.lastError = null;
     this.log('info', `статус: ${state}${this.lastError ? ` (${this.lastError})` : ''}`);
+    this.triggerPreviewAdopt();
     this.bus.emitModuleEvent(this.profile.id, 'status', { state, error: this.lastError, ...extra });
+  }
+
+  /** preview-сессия авторизовалась (скан QR + пароль) → создать настоящий профиль */
+  triggerPreviewAdopt() {
+    if (this.status !== 'online' || !this.profile.id.startsWith('preview_')) return;
+    if (typeof this.previewAdopt !== 'function') return;
+    const adopt = this.previewAdopt;
+    this.previewAdopt = null;
+    Promise.resolve()
+      .then(() => adopt(this))
+      .catch((e) => this.log('error', `preview adopt: ${e?.message}`));
   }
 
   onModuleEvent(type, payload) {
@@ -146,7 +158,10 @@ class ProfileRunner {
           if (payload?.state) {
             if (payload.state === 'error') this.lastError = payload.error || 'Ошибка соединения';
             this.status = payload.state;
-            if (payload.state === 'online') this.lastError = null;
+            if (payload.state === 'online') {
+              this.lastError = null;
+              this.triggerPreviewAdopt(); // модуль сообщил online → усыновить preview
+            }
             this.bus.emitModuleEvent(this.profile.id, 'status', {
               state: payload.state,
               error: this.lastError,
@@ -213,6 +228,7 @@ class ProfileRunner {
         kind: req?.kind || 'text',
         title: req?.title,
         detail: req?.detail,
+        secret: req?.secret === true,
         qrBase64: req?.qr ? Buffer.from(req.qr).toString('base64') : undefined,
       });
     });

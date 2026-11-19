@@ -92,6 +92,7 @@ export type MshhEvent =
         kind: 'code' | 'text' | 'qr';
         title?: string;
         detail?: string;
+        secret?: boolean;
         qrBase64?: string;
       };
     };

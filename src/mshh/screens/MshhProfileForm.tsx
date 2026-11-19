@@ -163,6 +163,12 @@ export function MshhProfileForm() {
     return missing;
   };
 
+  // Оптимистичное окно кода: открывается мгновенно при подтверждении номера,
+  // код можно вводить до фактической отправки (ядро поставит его в очередь).
+  const [codeModalPhone, setCodeModalPhone] = useState<string | null>(null);
+  const [codeValue, setCodeValue] = useState('');
+  const [codeQueued, setCodeQueued] = useState(false);
+
   const connectOrCreate = async () => {
     if (!manifest) return;
     setBusy(true);
@@ -260,11 +266,6 @@ export function MshhProfileForm() {
     if (createdProfile?.status === 'online') navigate(getMshhPath());
   }, [createdProfile?.status, createdProfile, navigate]);
 
-  // Оптимистичное окно кода: открывается мгновенно при подтверждении номера,
-  // код можно вводить до фактической отправки (ядро поставит его в очередь).
-  const [codeModalPhone, setCodeModalPhone] = useState<string | null>(null);
-  const [codeValue, setCodeValue] = useState('');
-  const [codeQueued, setCodeQueued] = useState(false);
 
   // Код можно ввести до фактической отправки: пустой promptId ставит значение
   // в очередь ядра, prompt() заберёт его сразу после sendCode.
@@ -287,7 +288,7 @@ export function MshhProfileForm() {
     const id = createdId ?? profileId;
     if (id) {
       const pending = profilePrompts.get(id);
-      void api.respondPrompt(id, pending?.payload.promptId ?? '', '');
+      api.respondPrompt(id, pending?.payload.promptId ?? '', '').catch(() => {});
       if (pending) clearPrompt(id, pending.payload.promptId);
     }
     setCodeModalPhone(null);
@@ -492,7 +493,7 @@ export function MshhProfileForm() {
                         // персональная сборка: вшитые значения — предзаполнение
                         setFormConfig({ ...(moduleDefaults[module.id] ?? {}) });
                         // QR-превью: сессия авторизации стартует сразу при выборе
-                        void api.formPreviewStart(module.id, moduleDefaults[module.id] ?? {});
+                        api.formPreviewStart(module.id, moduleDefaults[module.id] ?? {}).catch(() => {});
                       }}
                     >
                       <Box direction="Column" gap="100" style={{ padding: config.space.S300 }}>
@@ -527,7 +528,13 @@ export function MshhProfileForm() {
                     required
                     help="Как профиль называется в списках чатов"
                   >
-                    <Input value={name} onChange={(evt) => setName(evt.currentTarget.value)} />
+                    <Input
+                      value={name}
+                      onChange={(evt) => setName(evt.currentTarget.value)}
+                      onKeyDown={(evt) => {
+                        if (evt.key === 'Enter') void submit();
+                      }}
+                    />
                   </FieldRow>
                   {(manifest?.fields ?? [])
                     .filter((field) => !defaultsFor || !(field.name in defaultsFor))
@@ -637,13 +644,13 @@ export function MshhProfileForm() {
                   value={codeValue}
                   onChange={(evt) => setCodeValue(evt.currentTarget.value)}
                   onKeyDown={(evt) => {
-                    if (evt.key === 'Enter') void submitCode();
+                    if (evt.key === 'Enter') submitCode();
                   }}
                   placeholder="Введите код"
                 />
                 <Button
                   variant="Primary"
-                  onClick={() => void submitCode()}
+                  onClick={() => submitCode()}
                   aria-disabled={codeQueued && codePrompts.length === 0}
                 >
                   <Text as="span" size="B400">

@@ -215,6 +215,31 @@ function registerIpc({ ipcMain, store, manager, bus, getWin, appVersion, log }) 
       bus,
       log,
     });
+    // авторизованная preview-сессия (скан QR) → автоматически создать профиль
+    runner.previewAdopt = async (previewRunner) => {
+      const previewId = previewRunner.profile.id;
+      const realProfile = store.create({
+        moduleId,
+        name: moduleId === 'telegram' ? 'Telegram' : moduleId,
+        config: previewRunner.profile.config,
+        enabled: true,
+      });
+      const old = manager.runnerFor(previewId);
+      if (old) {
+        await manager.stopRunner(previewId, { silent: true });
+        manager.runners.delete(previewId);
+      }
+      bus.removeProfilePrompts(previewId);
+      const previewDir = manager.dataDirFor(previewId);
+      const targetDir = manager.dataDirFor(realProfile.id);
+      if (fs.existsSync(previewDir)) {
+        fs.rmSync(targetDir, { recursive: true, force: true });
+        fs.renameSync(previewDir, targetDir);
+      }
+      log('info', `QR-вход завершён — профиль создан (${realProfile.name})`);
+      await manager.ensureRunner(realProfile).catch(() => {});
+      bus.emitStateDirty();
+    };
     manager.runners.set(previewId, runner);
     runner.start().catch(() => {}); // ошибки видны статусом промпта в форме
     return { previewId };

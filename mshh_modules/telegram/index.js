@@ -709,6 +709,7 @@ function create(ctx) {
               kind: 'text',
               title: 'Облачный пароль',
               detail: `На аккаунте включена двухфакторная аутентификация${hint ? ` (подсказка: ${hint})` : ''}`,
+              secret: true,
               timeoutMs: PROMPT_TIMEOUT_MS,
             });
             const password = String(pwdAnswer?.value ?? '');

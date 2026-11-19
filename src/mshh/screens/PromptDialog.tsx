@@ -115,6 +115,7 @@ export function PromptDialog({ profileId }: PromptDialogProps) {
                 <Box direction="Column" gap="200">
                   <Input
                     value={value}
+                    type={payload.secret ? 'password' : 'text'}
                     onChange={(evt) => setValue(evt.currentTarget.value)}
                     placeholder={payload.kind === 'code' ? 'Введите код' : 'Введите ответ'}
                     autoFocus
