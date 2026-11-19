@@ -726,7 +726,12 @@ function create(ctx) {
   }
 
   async function authFlow(client, creds, phone) {
-    // Сначала QR — телефон не нужен. «Отмена» → вход по коду.
+    // Телефон указан → сразу вход по коду. Пусто → QR (после отмены QR,
+    // если телефон введён, код тоже сработает — форма обновляет конфиг).
+    if (phone) {
+      await codeFlow(client, creds, phone);
+      return;
+    }
     try {
       await qrLogin(client, creds);
       return;
@@ -735,12 +740,28 @@ function create(ctx) {
       ctxLog('info', 'QR-вход отменён — переключаюсь на вход по коду');
     }
     if (!phone) throw new Error('Не указан номер телефона — для входа по коду заполните поле «Телефон» и повторите подключение');
+  }
 
-    const { phoneCodeHash } = await withDeadline(
-      client.sendCode(creds, phone),
-      SENDCODE_DEADLINE_MS,
-      'Telegram: не удалось отправить код подтверждения (таймаут)',
-    ).catch((e) => { throw friendlyError(e, 'Telegram: не удалось отправить код'); });
+  async function codeFlow(client, creds, phone) {
+    // «Cannot send requests while disconnected» на холодном соединении —
+    // рвётся между connect() и sendCode: один повтор после реконнекта.
+    const sendCodeOnce = () =>
+      withDeadline(
+        client.sendCode(creds, phone),
+        SENDCODE_DEADLINE_MS,
+        'Telegram: не удалось отправить код подтверждения (таймаут)',
+      );
+    let phoneCodeHash;
+    try {
+      ({ phoneCodeHash } = await sendCodeOnce());
+    } catch (e) {
+      if (!/disconnected/i.test(String(e?.errorMessage || e?.message || ''))) {
+        throw friendlyError(e, 'Telegram: не удалось отправить код');
+      }
+      ctxLog('warn', 'соединение оборвалось перед sendCode — переподключаюсь');
+      await client.connect();
+      ({ phoneCodeHash } = await sendCodeOnce());
+    }
 
     const codeAnswer = await ctx.prompt({
       kind: 'code',

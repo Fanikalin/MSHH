@@ -270,6 +270,26 @@ export function MshhProfileForm() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoReady, formConfig]);
 
+  // Ввод телефона: пользователь печатает номер → через 1с переподключаем
+  // профиль, модуль уходит во вход по коду (QR гаснет). Повторы не чаще раза в 2с.
+  const lastPhoneConnectRef = useRef(0);
+  const phoneReady = useMemo(() => {
+    if (editing || moduleId !== 'telegram') return false;
+    const phone = String(formConfig.phone ?? '').replace(/[^\d+]/g, '');
+    return /^\+?\d{10,15}$/.test(phone);
+  }, [editing, moduleId, formConfig]);
+
+  useEffect(() => {
+    if (!phoneReady) return undefined;
+    const timer = setTimeout(() => {
+      if (Date.now() - lastPhoneConnectRef.current < 2000) return;
+      lastPhoneConnectRef.current = Date.now();
+      connectOrCreate();
+    }, 1000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phoneReady, formConfig]);
+
   // QR из промпта модуля — инлайн, рядом с полем телефона
   const ownerId = createdId ?? profileId;
   const ownerPrompt = ownerId ? profilePrompts.get(ownerId) : undefined;
@@ -288,16 +308,6 @@ export function MshhProfileForm() {
     promptEv?.payload.kind === 'qr' && promptEv.payload.qrBase64
       ? `data:image/png;base64,${promptEv.payload.qrBase64}`
       : undefined;
-  // отказ от QR: отвечаем модулю пустым значением — он уйдёт во вход по коду
-  const cancelQrPrompt = async () => {
-    if (!promptEv) return;
-    try {
-      await api.respondPrompt(promptEv.profileId, promptEv.payload.promptId, '');
-    } catch {
-      /* промпт уже закрылся */
-    }
-    clearPrompt(promptEv.profileId, promptEv.payload.promptId);
-  };
   const promptProfileName = promptEv
     ? profiles.find((p) => p.id === promptEv.profileId)?.name
     : undefined;
@@ -555,11 +565,6 @@ export function MshhProfileForm() {
                         </Text>
                       </>
                     )}
-                    <Button size="300" fill="Soft" onClick={() => cancelQrPrompt()}>
-                      <Text as="span" size="B300">
-                        Войти по коду (SMS)
-                      </Text>
-                    </Button>
                   </Box>
                 )}
               </Box>
