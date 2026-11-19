@@ -168,6 +168,10 @@ export function MshhProfileForm() {
           await api.updateProfile(createdId, { name, config: nextConfig });
           await api.disconnectProfile(createdId);
           await api.connectProfile(createdId);
+        } else if (existing?.status === 'error' || existing?.status === 'offline') {
+          // повторное нажатие при неудачном подключении — просто переподключить
+          await api.disconnectProfile(createdId);
+          await api.connectProfile(createdId);
         }
       } else {
         const created = await api.createProfile(
@@ -438,6 +442,14 @@ export function MshhProfileForm() {
                 {(manifest?.fields ?? [])
                   .filter((field) => !defaultsFor || !(field.name in defaultsFor))
                   .map(renderField)}
+                {createdId && !qrImage && !error && (
+                  <Box alignItems="Center" gap="200">
+                    <Spinner size="200" variant="Secondary" fill="Soft" />
+                    <Text size="T200" priority="300">
+                      Готовим QR — отсканируйте его в Telegram (Настройки → Устройства → Связать устройство)
+                    </Text>
+                  </Box>
+                )}
                 {qrImage && (
                   <Box direction="Column" alignItems="Center" gap="100">
                     <img

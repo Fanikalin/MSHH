@@ -682,13 +682,22 @@ function create(ctx) {
       await client.signInUserWithQrCode(creds, {
         qrCode: async ({ token }) => {
           const png = await QRCode.toBuffer(tgQrUrl(token), { type: 'png', margin: 1, width: 512 });
-          const answer = await ctx.prompt({
+          // Таймаут промпта длиннее внутреннего цикла GramJS (30с): цикл всегда
+          // «выигрывает гонку» и сам перезапрашивает QR с новым токеном —
+          // иначе промпт-таймаут роняет весь вход.
+          const promptPromise = ctx.prompt({
             kind: 'qr',
             qr: png,
             title: 'Вход по QR',
             detail: 'Отсканируйте в Telegram: Настройки → Устройства → Связать устройство',
-            timeoutMs: QR_PROMPT_MS,
+            timeoutMs: QR_PROMPT_MS + 5000,
           });
+          promptPromise.catch(() => {}); // поздний таймаут не должен стать unhandled
+          const answer = await Promise.race([
+            promptPromise,
+            new Promise((resolve) => setTimeout(() => resolve({ refreshed: true }), QR_PROMPT_MS)),
+          ]);
+          if (answer?.refreshed) return; // GramJS перезапустит цикл с новым токеном
           if (!answer || answer.value === undefined) throw new QrCancelled();
           // иное разрешение (таймаут формы) — просто ждём следующий QR-токен
         },
