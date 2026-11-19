@@ -73,6 +73,7 @@ function registerIpc({ ipcMain, store, manager, bus, getWin, appVersion }) {
 
   ipcMain.handle('mshh:profiles.delete', wrap(async ({ id }) => {
     await manager.removeRunner(id);
+    bus.removeProfilePrompts(id);
     store.delete(id);
     bus.emitStateDirty();
     return null;
@@ -170,6 +171,8 @@ function registerIpc({ ipcMain, store, manager, bus, getWin, appVersion }) {
     });
     return res.canceled ? [] : res.filePaths;
   }));
+
+  ipcMain.handle('mshh:getPendingPrompts', wrap(async () => bus.getPendingPrompts()));
 
   ipcMain.handle('mshh:shell.openExternal', wrap(async ({ url }) => {
     if (typeof url === 'string' && /^https?:\/\//.test(url)) await shell.openExternal(url);

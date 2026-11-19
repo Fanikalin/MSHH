@@ -194,6 +194,7 @@ class ProfileRunner {
       const timeoutMs = req?.timeoutMs || 180000;
       const timer = setTimeout(() => {
         this.prompts.delete(promptId);
+        this.bus.clearLastPrompt(this.profile.id, promptId);
         reject(new Error('время ожидания ввода истекло'));
       }, timeoutMs);
       this.prompts.set(promptId, { resolve, reject, timer });
@@ -213,6 +214,7 @@ class ProfileRunner {
     if (!p) return false;
     this.prompts.delete(promptId);
     clearTimeout(p.timer);
+    this.bus.clearLastPrompt(this.profile.id, promptId);
     p.resolve({ value });
     return true;
   }
@@ -220,6 +222,7 @@ class ProfileRunner {
   cancelPrompts(reason) {
     for (const [id, p] of this.prompts) {
       clearTimeout(p.timer);
+      this.bus.clearLastPrompt(this.profile.id, id);
       p.reject(new Error(reason));
       this.prompts.delete(id);
     }

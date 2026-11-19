@@ -273,20 +273,34 @@ export function MshhProfileForm() {
   // QR из промпта модуля — инлайн, рядом с полем телефона
   const ownerId = createdId ?? profileId;
   const ownerPrompt = ownerId ? profilePrompts.get(ownerId) : undefined;
+  // QR любого профиля этого модуля (например, возобновлённого после запуска приложения)
+  const moduleQrPrompt = useMemo(() => {
+    if (!manifest) return undefined;
+    for (const ev of profilePrompts.values()) {
+      if (ev.payload.kind !== 'qr' || !ev.payload.qrBase64) continue;
+      const prof = profiles.find((p) => p.id === ev.profileId);
+      if (prof?.moduleId === manifest.id) return ev;
+    }
+    return undefined;
+  }, [profilePrompts, profiles, manifest]);
+  const promptEv = ownerPrompt ?? moduleQrPrompt;
   const qrImage =
-    ownerPrompt?.payload.kind === 'qr' && ownerPrompt.payload.qrBase64
-      ? `data:image/png;base64,${ownerPrompt.payload.qrBase64}`
+    promptEv?.payload.kind === 'qr' && promptEv.payload.qrBase64
+      ? `data:image/png;base64,${promptEv.payload.qrBase64}`
       : undefined;
   // отказ от QR: отвечаем модулю пустым значением — он уйдёт во вход по коду
   const cancelQrPrompt = async () => {
-    if (!ownerId || !ownerPrompt) return;
+    if (!promptEv) return;
     try {
-      await api.respondPrompt(ownerId, ownerPrompt.payload.promptId, '');
+      await api.respondPrompt(promptEv.profileId, promptEv.payload.promptId, '');
     } catch {
       /* промпт уже закрылся */
     }
-    clearPrompt(ownerId, ownerPrompt.payload.promptId);
+    clearPrompt(promptEv.profileId, promptEv.payload.promptId);
   };
+  const promptProfileName = promptEv
+    ? profiles.find((p) => p.id === promptEv.profileId)?.name
+    : undefined;
 
   const retryConnect = async () => {
     const id = createdId ?? profileId;
@@ -510,7 +524,7 @@ export function MshhProfileForm() {
                     </Button>
                   </Box>
                 </Box>
-                {(createdId || qrImage) && (
+                {(createdId || qrImage || promptEv) && (
                   <Box
                     direction="Column"
                     alignItems="Center"
@@ -528,7 +542,9 @@ export function MshhProfileForm() {
                           style={{ borderRadius: config.radii.R300 }}
                         />
                         <Text size="T200" priority="300" align="Center">
-                          Отсканируйте в Telegram: Настройки → Устройства → Связать устройство
+                          {promptProfileName
+                            ? `Продолжается вход: «${promptProfileName}». Отсканируйте в Telegram: Настройки → Устройства → Связать устройство`
+                            : 'Отсканируйте в Telegram: Настройки → Устройства → Связать устройство'}
                         </Text>
                       </>
                     ) : (

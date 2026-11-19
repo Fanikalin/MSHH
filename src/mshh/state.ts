@@ -181,6 +181,11 @@ export async function startMshhCore() {
   try {
     const state = await api.getState();
     setCoreState(state);
+    // replay активных промптов (QR/код), ушедших до подписки renderer'а
+    const pending = await api.getPendingPrompts();
+    pending.forEach((event) => {
+      if (event.type === 'prompt') pushPrompt(event);
+    });
     const chats = await api.listChats();
     const chatMap = new Map<string, Chat>();
     chats.forEach((chat) => chatMap.set(chatKey(chat.profileId, chat.id), chat));

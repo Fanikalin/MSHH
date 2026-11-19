@@ -41,6 +41,7 @@ export const api = {
   disconnectProfile: (id: string) => invoke<{ renderer?: boolean }>('profiles.disconnect', { id }),
   respondPrompt: (profileId: string, promptId: string, value: string) =>
     invoke<{ delivered: boolean }>('profiles.respond', { profileId, promptId, value }),
+  getPendingPrompts: () => invoke<MshhEvent[]>('getPendingPrompts'),
   listChats: () => invoke<Chat[]>('chats.list'),
   history: (profileId: string, chatId: string, beforeTs?: number, limit?: number) =>
     invoke<Message[]>('chats.history', { profileId, chatId, beforeTs, limit }),
