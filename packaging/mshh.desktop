@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Mshh
+GenericName=Мессенджер
+Comment=Мультипротокольный мессенджер на базе Cinny
+Exec=mshh
+Icon=mshh
+Terminal=false
+StartupWMClass=Mshh
+Categories=Network;InstantMessaging;

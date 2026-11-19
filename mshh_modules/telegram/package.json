@@ -1,0 +1,10 @@
+{
+  "name": "mshh-module-telegram",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "index.cjs",
+  "dependencies": {
+    "telegram": "^2.26.22"
+  }
+}

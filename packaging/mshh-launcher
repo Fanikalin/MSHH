@@ -1,0 +1,21 @@
+#!/bin/sh
+# Лаунчер MSHH. Устанавливается install.sh.
+MSHH_APP_DIR="@INSTALL_DIR@/mshh-linux-x64"
+
+if [ ! -x "$MSHH_APP_DIR/mshh" ]; then
+	echo "MSHH: приложение не найдено в $MSHH_APP_DIR." >&2
+	echo "Переустановите: curl -fsSL https://raw.githubusercontent.com/Fanikalin/MSHH/main/install.sh | bash" >&2
+	exit 1
+fi
+
+# Wayland/Hyprland: Electron выбирает графический бэкенд автоматически.
+# Если ELECTRON_OZONE_PLATFORM_HINT уже задана — используем её без флагов.
+if [ -n "${ELECTRON_OZONE_PLATFORM_HINT:-}" ]; then
+	exec "$MSHH_APP_DIR/mshh" "$@"
+fi
+export ELECTRON_OZONE_PLATFORM_HINT=auto
+exec "$MSHH_APP_DIR/mshh" \
+	--enable-features=UseOzonePlatform \
+	--ozone-platform-hint=auto \
+	--enable-wayland \
+	"$@"

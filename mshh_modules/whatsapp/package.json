@@ -1,0 +1,11 @@
+{
+  "name": "mshh-module-whatsapp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "index.cjs",
+  "dependencies": {
+    "baileys": "^7.0.0-rc14",
+    "qrcode": "^1.5.4"
+  }
+}

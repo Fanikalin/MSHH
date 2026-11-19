@@ -5,3 +5,6 @@ devAssets
 
 .DS_Store
 .idea
+out
+desktop/*.log
+userData-test

@@ -1,0 +1,33 @@
+{
+  "id": "telegram",
+  "name": "Telegram",
+  "version": "1.0.0",
+  "side": "main",
+  "description": "Telegram через библиотеку gramjs. Нужны api_id и api_hash с my.telegram.org; вход по коду, при включённой 2FA — по паролю.",
+  "entry": "index.cjs",
+  "auth": { "type": "code" },
+  "profileFields": [
+    {
+      "key": "apiId",
+      "label": "API ID",
+      "type": "number",
+      "required": true,
+      "hint": "Получите на my.telegram.org → API development tools"
+    },
+    {
+      "key": "apiHash",
+      "label": "API Hash",
+      "type": "secret",
+      "required": true,
+      "hint": "Получите на my.telegram.org → API development tools"
+    },
+    {
+      "key": "phone",
+      "label": "Телефон",
+      "type": "string",
+      "required": true,
+      "placeholder": "+7…",
+      "hint": "Международный формат, например +79991234567"
+    }
+  ]
+}

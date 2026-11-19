@@ -1,0 +1,23 @@
+{
+  "id": "matrix",
+  "name": "Matrix",
+  "version": "1.0.0",
+  "side": "renderer",
+  "description": "Встроенный модуль Matrix на базе Cinny. Профили создаются из существующих сессий Cinny и управляются только через Cinny.",
+  "auth": { "type": "builtin-login" },
+  "profileFields": [
+    {
+      "key": "homeserver",
+      "label": "Homeserver",
+      "type": "string",
+      "hint": "Адрес сервера текущей сессии Cinny; только для просмотра"
+    },
+    {
+      "key": "userId",
+      "label": "ID пользователя",
+      "type": "string",
+      "placeholder": "@user:example.org",
+      "hint": "Определяется сессией Cinny; редактирование недоступно"
+    }
+  ]
+}

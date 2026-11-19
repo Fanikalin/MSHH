@@ -1,0 +1,44 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish Linux release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build renderer
+        run: npm run build
+
+      - name: Package Electron app
+        run: npm run dist
+
+      - name: Verify package layout
+        run: test -x out/mshh-linux-x64/mshh
+
+      - name: Create tarball
+        run: tar czf mshh-linux-x64.tar.gz -C out mshh-linux-x64
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: mshh-linux-x64.tar.gz
+          generate_release_notes: true

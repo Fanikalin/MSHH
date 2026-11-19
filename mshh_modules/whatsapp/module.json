@@ -1,0 +1,17 @@
+{
+  "id": "whatsapp",
+  "name": "WhatsApp",
+  "version": "1.0.0",
+  "side": "main",
+  "description": "WhatsApp через библиотеку Baileys. Вход по QR-коду, сессия сохраняется автоматически.",
+  "entry": "index.cjs",
+  "auth": { "type": "qr" },
+  "profileFields": [
+    {
+      "key": "name",
+      "label": "Название профиля",
+      "type": "string",
+      "hint": "Необязательно; подпись профиля в списке"
+    }
+  ]
+}

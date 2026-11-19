@@ -39,22 +39,32 @@ export function About({ requestClose }: AboutProps) {
                   <img
                     style={{ width: toRem(60), height: toRem(60) }}
                     src={CinnySVG}
-                    alt="Cinny logo"
+                    alt="Mshh logo"
                   />
                 </Box>
                 <Box direction="Column" gap="300">
                   <Box direction="Column" gap="100">
                     <Box gap="100" alignItems="End">
-                      <Text size="H3">Cinny</Text>
-                      <Text size="T200">v4.12.8</Text>
+                      <Text size="H3">Mshh</Text>
+                      <Text size="T200">v0.1.0</Text>
                     </Box>
-                    <Text>Yet another matrix client.</Text>
+                    <Text>
+                      Мультипротокольный мессенджер. Основан на{' '}
+                      <a
+                        href="https://github.com/cinnyapp/cinny"
+                        rel="noreferrer noopener"
+                        target="_blank"
+                      >
+                        Cinny
+                      </a>
+                      .
+                    </Text>
                   </Box>
 
                   <Box gap="200" wrap="Wrap">
                     <Button
                       as="a"
-                      href="https://github.com/cinnyapp/cinny"
+                      href="https://github.com/Fanikalin/MSHH"
                       rel="noreferrer noopener"
                       target="_blank"
                       variant="Secondary"
@@ -67,16 +77,16 @@ export function About({ requestClose }: AboutProps) {
                     </Button>
                     <Button
                       as="a"
-                      href="https://cinny.in/#sponsor"
+                      href="https://github.com/Fanikalin/MSHH/blob/main/docs/mshh/MODULE_API.md"
                       rel="noreferrer noopener"
                       target="_blank"
-                      variant="Critical"
+                      variant="Secondary"
                       fill="Soft"
                       size="300"
                       radii="300"
-                      before={<Icon src={Icons.Heart} size="100" filled />}
+                      before={<Icon src={Icons.Download} size="100" filled />}
                     >
-                      <Text size="B300">Support</Text>
+                      <Text size="B300">Модули</Text>
                     </Button>
                   </Box>
                 </Box>
