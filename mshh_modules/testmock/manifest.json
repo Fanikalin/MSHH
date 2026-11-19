@@ -1,0 +1,16 @@
+{
+  "id": "testmock",
+  "name": "TestMock",
+  "version": "1.0.0",
+  "runtime": "main",
+  "auth": "custom",
+  "fields": [
+    {
+      "name": "demoCodePrompt",
+      "label": "Демо: промпт кода",
+      "type": "boolean",
+      "help": "После подключения показать диалог ввода кода (тест модалки)"
+    }
+  ],
+  "capabilities": { "media": true, "history": true, "typing": true }
+}
