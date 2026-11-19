@@ -1,0 +1,13 @@
+{
+  "id": "xmpp",
+  "name": "XMPP",
+  "version": "1.0.0",
+  "runtime": "main",
+  "auth": "password",
+  "capabilities": { "media": false, "history": false, "typing": true },
+  "fields": [
+    { "name": "jid", "label": "JID", "type": "text", "required": true, "placeholder": "user@jabber.ru" },
+    { "name": "password", "label": "Пароль", "type": "password", "required": true },
+    { "name": "service", "label": "Сервер", "type": "text", "help": "например xmpp://jabber.ru:5222; пусто — автоопределение по SRV" }
+  ]
+}

@@ -29,6 +29,11 @@ import {
   _SEARCH_PATH,
   _SERVER_PATH,
   CREATE_PATH,
+  MSHH_PATH,
+  _MSHH_PROFILES_PATH,
+  _MSHH_PROFILE_NEW_PATH,
+  _MSHH_PROFILE_EDIT_PATH,
+  _MSHH_CHAT_PATH,
 } from './paths';
 import {
   getAppPathFromHref,
@@ -36,6 +41,7 @@ import {
   getHomePath,
   getInboxNotificationsPath,
   getLoginPath,
+  getMshhPath,
   getOriginBaseUrl,
   getSpaceLobbyPath,
 } from './pathUtils';
@@ -70,6 +76,7 @@ import { SearchModalRenderer } from '../features/search';
 import { getFallbackSession } from '../state/sessions';
 import { CallStatusRenderer } from './CallStatusRenderer';
 import { CallEmbedProvider } from '../components/CallEmbedProvider';
+import { MshhIndex, MshhHome, MshhChat, MshhProfiles, MshhProfileForm } from '../../mshh/screens';
 
 export const createRouter = (clientConfig: ClientConfig, screenSize: ScreenSize) => {
   const { hashRouter } = clientConfig;
@@ -79,13 +86,26 @@ export const createRouter = (clientConfig: ClientConfig, screenSize: ScreenSize)
     <Route>
       <Route
         index
-        loader={() => {
-          if (getFallbackSession()) return redirect(getHomePath());
-          const afterLoginPath = getAppPathFromHref(getOriginBaseUrl(), window.location.href);
-          if (afterLoginPath) setAfterLoginRedirectPath(afterLoginPath);
-          return redirect(getLoginPath());
-        }}
+        loader={() =>
+          // MSHH: the app entry is always the profiles & chats scenario
+          // (docs/CINNY_WIRING.md). Matrix login stays reachable at /login.
+          redirect(getMshhPath())
+        }
       />
+      <Route
+        path={MSHH_PATH}
+        element={
+          <AuthRouteThemeManager>
+            <MshhIndex />
+          </AuthRouteThemeManager>
+        }
+      >
+        <Route index element={<MshhHome />} />
+        <Route path={_MSHH_CHAT_PATH} element={<MshhChat />} />
+        <Route path={_MSHH_PROFILES_PATH} element={<MshhProfiles />} />
+        <Route path={_MSHH_PROFILE_NEW_PATH} element={<MshhProfileForm />} />
+        <Route path={_MSHH_PROFILE_EDIT_PATH} element={<MshhProfileForm />} />
+      </Route>
       <Route
         loader={() => {
           if (getFallbackSession()) {

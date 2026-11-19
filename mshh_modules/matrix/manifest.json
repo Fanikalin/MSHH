@@ -1,0 +1,13 @@
+{
+  "id": "matrix",
+  "name": "Matrix",
+  "version": "1.0.0",
+  "runtime": "renderer",
+  "auth": "password",
+  "fields": [
+    { "name": "homeserver", "label": "Homeserver", "type": "text", "required": true, "placeholder": "https://matrix.org" },
+    { "name": "userId", "label": "Имя пользователя", "type": "text", "required": true, "placeholder": "user или @user:matrix.org" },
+    { "name": "password", "label": "Пароль", "type": "password", "required": true }
+  ],
+  "capabilities": { "media": false, "history": true, "typing": false }
+}

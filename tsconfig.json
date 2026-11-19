@@ -8,6 +8,8 @@
     "strict": true,
     "esModuleInterop": true,
     "moduleResolution": "Node",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
     "resolveJsonModule": true,
     "outDir": "dist",
     "skipLibCheck": true,

@@ -1,0 +1,385 @@
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { useAtomValue } from 'jotai';
+import {
+  Box,
+  Button,
+  Chip,
+  Icon,
+  IconButton,
+  Icons,
+  Input,
+  Scroll,
+  Spinner,
+  Switch,
+  Text,
+  color,
+  config,
+} from 'folds';
+import { Page, PageHeader } from '../../app/components/page';
+import { NavItem } from '../../app/components/nav';
+import { getMshhPath, getMshhProfilesPath } from '../../app/pages/pathUtils';
+import { api } from '../api';
+import { modulesAtom, profilesAtom } from '../state';
+import { ModuleField } from '../types';
+import { StatusDot, profileStatusText } from '../components/StatusDot';
+import { PromptDialog } from './PromptDialog';
+
+type ConfigValue = string | number | boolean;
+type ProfileConfig = Record<string, ConfigValue>;
+
+const errorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+const fieldLabel = (field: ModuleField): string => field.label ?? field.name;
+
+type FieldRowProps = {
+  label: string;
+  required?: boolean;
+  help?: string;
+  children: React.ReactNode;
+};
+
+function FieldRow({ label, required, help, children }: FieldRowProps) {
+  return (
+    <Box direction="Column" gap="100">
+      <Text size="T300">
+        {label}
+        {required && <span style={{ color: color.Critical.Main }}> *</span>}
+      </Text>
+      {children}
+      {help && (
+        <Text size="T200" priority="300">
+          {help}
+        </Text>
+      )}
+    </Box>
+  );
+}
+
+/** Add-profile flow (module → schema form → connect) and edit mode via route param. */
+export function MshhProfileForm() {
+  const { profileId } = useParams<{ profileId?: string }>();
+  const navigate = useNavigate();
+  const modules = useAtomValue(modulesAtom);
+  const profiles = useAtomValue(profilesAtom);
+  const editing = useMemo(
+    () => profiles.find((profile) => profile.id === profileId),
+    [profiles, profileId]
+  );
+
+  const [moduleId, setModuleId] = useState<string | null>(null);
+  const [name, setName] = useState('');
+  const [formConfig, setFormConfig] = useState<ProfileConfig>({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [createdId, setCreatedId] = useState<string | null>(null);
+
+  const manifest = useMemo(() => modules.find((m) => m.id === moduleId), [modules, moduleId]);
+
+  // Prefill once in edit mode, when the profile shows up in state.
+  const prefilledRef = useRef(false);
+  useEffect(() => {
+    if (prefilledRef.current || !editing) return;
+    prefilledRef.current = true;
+    setModuleId(editing.moduleId);
+    setName(editing.name);
+    setFormConfig({ ...editing.config });
+  }, [editing]);
+
+  const setFieldValue = (fieldName: string, value: ConfigValue) =>
+    setFormConfig((prev) => ({ ...prev, [fieldName]: value }));
+
+  const buildConfig = (): ProfileConfig => {
+    const result: ProfileConfig = {};
+    (manifest?.fields ?? []).forEach((field) => {
+      const raw = formConfig[field.name];
+      if (field.type === 'number') {
+        result[field.name] = raw === undefined || raw === '' ? '' : Number(raw);
+      } else if (field.type === 'boolean') {
+        result[field.name] = raw === true;
+      } else {
+        result[field.name] = raw === undefined || typeof raw === 'boolean' ? '' : String(raw);
+      }
+    });
+    return result;
+  };
+
+  const firstMissingRequired = (): string | null => {
+    const prepared = buildConfig();
+    let missing: string | null = null;
+    (manifest?.fields ?? []).forEach((field) => {
+      if (missing || !field.required) return;
+      const value = prepared[field.name];
+      if (field.type === 'boolean') {
+        if (value !== true) missing = fieldLabel(field);
+      } else if (value === '' || value === undefined) {
+        missing = fieldLabel(field);
+      }
+    });
+    return missing;
+  };
+
+  const submit = async () => {
+    if (!manifest) return;
+    const missing = firstMissingRequired();
+    if (missing) {
+      setError(`Заполните обязательное поле: «${missing}»`);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      if (editing) {
+        const nextConfig = buildConfig();
+        const configChanged = JSON.stringify(nextConfig) !== JSON.stringify(editing.config);
+        await api.updateProfile(editing.id, { name, config: nextConfig });
+        if (configChanged) {
+          // runner must pick up the new settings
+          await api.disconnectProfile(editing.id);
+          await api.connectProfile(editing.id);
+        }
+        navigate(getMshhProfilesPath());
+      } else {
+        const created = await api.createProfile(
+          manifest.id,
+          name.trim() || manifest.name,
+          buildConfig()
+        );
+        setCreatedId(created.id); // auth prompts (code/QR) now surface via PromptDialog
+        await api.connectProfile(created.id);
+        navigate(getMshhPath());
+      }
+    } catch (submitError) {
+      setError(errorMessage(submitError));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const retryConnect = async () => {
+    const id = createdId ?? profileId;
+    if (!id) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.connectProfile(id);
+      navigate(editing ? getMshhProfilesPath() : getMshhPath());
+    } catch (connectError) {
+      setError(errorMessage(connectError));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const renderField = (field: ModuleField) => {
+    switch (field.type) {
+      case 'boolean':
+        return (
+          <FieldRow key={field.name} label={fieldLabel(field)} help={field.help}>
+            <Switch
+              value={formConfig[field.name] === true}
+              onChange={(on) => setFieldValue(field.name, on)}
+            />
+          </FieldRow>
+        );
+      case 'select':
+        return (
+          <FieldRow
+            key={field.name}
+            label={fieldLabel(field)}
+            required={field.required}
+            help={field.help}
+          >
+            <select
+              value={formConfig[field.name] === undefined ? '' : String(formConfig[field.name])}
+              onChange={(evt) => setFieldValue(field.name, evt.currentTarget.value)}
+              style={{
+                width: '100%',
+                padding: config.space.S200,
+                borderRadius: config.radii.R300,
+                border: 'none',
+                backgroundColor: color.SurfaceVariant.Container,
+                color: 'inherit',
+              }}
+            >
+              <option value="">—</option>
+              {field.options?.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </FieldRow>
+        );
+      default: {
+        let inputType = 'text';
+        if (field.type === 'password') inputType = 'password';
+        else if (field.type === 'number') inputType = 'number';
+        return (
+          <FieldRow
+            key={field.name}
+            label={fieldLabel(field)}
+            required={field.required}
+            help={field.help}
+          >
+            <Input
+              type={inputType}
+              value={formConfig[field.name] === undefined ? '' : String(formConfig[field.name])}
+              onChange={(evt) => {
+                const { value: rawValue } = evt.currentTarget;
+                let value: ConfigValue = rawValue;
+                if (field.type === 'number') {
+                  value = evt.currentTarget.value === '' ? '' : Number(evt.currentTarget.value);
+                }
+                setFieldValue(field.name, value);
+              }}
+              placeholder={field.placeholder}
+              required={field.required}
+            />
+          </FieldRow>
+        );
+      }
+    }
+  };
+
+  const showForm = editing !== undefined || moduleId !== null;
+
+  return (
+    <Page>
+      <PageHeader outlined balance>
+        <Box shrink="No">
+          <IconButton
+            variant="Background"
+            fill="None"
+            onClick={() => navigate(editing ? getMshhProfilesPath() : getMshhPath())}
+            aria-label="Назад"
+          >
+            <Icon src={Icons.ArrowGoLeft} />
+          </IconButton>
+        </Box>
+        <Box grow="Yes" style={{ minWidth: 0 }}>
+          <Text size="H4" truncate>
+            {editing ? 'Изменить профиль' : 'Добавить профиль'}
+          </Text>
+        </Box>
+      </PageHeader>
+      <Box grow="Yes" direction="Column" style={{ minHeight: 0 }}>
+        <Scroll
+          variant="Background"
+          direction="Vertical"
+          size="300"
+          hideTrack
+          visibility="Hover"
+          style={{ height: '100%' }}
+        >
+          <Box direction="Column" gap="400" style={{ padding: config.space.S400, maxWidth: 640 }}>
+            {editing && (
+              <Box alignItems="Center" gap="100">
+                <StatusDot status={editing.status} />
+                <Text size="T200" priority="300">
+                  {profileStatusText(editing)}
+                </Text>
+              </Box>
+            )}
+
+            {!showForm ? (
+              <>
+                <Text size="T300" priority="400">
+                  Выберите мессенджер:
+                </Text>
+                <Box wrap="Wrap" gap="200">
+                  {modules.length === 0 && (
+                    <Text size="T300" priority="300">
+                      Модули не найдены.
+                    </Text>
+                  )}
+                  {modules.map((module) => (
+                    <NavItem
+                      key={module.id}
+                      as="button"
+                      variant="Surface"
+                      radii="400"
+                      onClick={() => {
+                        setModuleId(module.id);
+                        setName(module.name);
+                        setFormConfig({});
+                      }}
+                    >
+                      <Box direction="Column" gap="100" style={{ padding: config.space.S300 }}>
+                        <Text size="T300">{module.name}</Text>
+                        <Box alignItems="Center" gap="100">
+                          <Chip as="span" size="400" variant="Secondary" fill="Soft" radii="Pill">
+                            <Text as="span" size="L400">
+                              {module.id}
+                            </Text>
+                          </Chip>
+                          {module.version && (
+                            <Text size="T200" priority="300">
+                              v{module.version}
+                            </Text>
+                          )}
+                        </Box>
+                        <Text size="T200" priority="300">
+                          {module.runtime === 'renderer'
+                            ? 'управляется интерфейсом'
+                            : 'выполняется в приложении'}
+                        </Text>
+                      </Box>
+                    </NavItem>
+                  ))}
+                </Box>
+              </>
+            ) : (
+              <>
+                <FieldRow
+                  label="Название профиля"
+                  required
+                  help="Как профиль называется в списках чатов"
+                >
+                  <Input value={name} onChange={(evt) => setName(evt.currentTarget.value)} />
+                </FieldRow>
+                {(manifest?.fields ?? []).map(renderField)}
+                {error && (
+                  <Box direction="Column" gap="100">
+                    <Text size="T200" style={{ color: color.Critical.Main }}>
+                      {error}
+                    </Text>
+                    {(createdId ?? editing) && !busy && (
+                      <Button size="300" fill="Soft" onClick={() => retryConnect()}>
+                        <Text as="span" size="B300">
+                          Повторить подключение
+                        </Text>
+                      </Button>
+                    )}
+                  </Box>
+                )}
+                {busy && (
+                  <Box alignItems="Center" gap="200">
+                    <Spinner size="200" variant="Secondary" fill="Soft" />
+                    <Text size="T200" priority="300">
+                      Подключение…
+                    </Text>
+                  </Box>
+                )}
+                <Box>
+                  <Button
+                    variant="Primary"
+                    aria-disabled={busy}
+                    onClick={() => submit()}
+                    before={busy ? <Spinner size="200" variant="Primary" fill="Soft" /> : undefined}
+                  >
+                    <Text as="span" size="B400">
+                      {editing ? 'Сохранить' : 'Создать и подключить'}
+                    </Text>
+                  </Button>
+                </Box>
+              </>
+            )}
+          </Box>
+        </Scroll>
+      </Box>
+      <PromptDialog profileId={createdId ?? profileId} />
+    </Page>
+  );
+}

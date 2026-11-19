@@ -1,0 +1,30 @@
+{
+  "id": "telegram",
+  "name": "Telegram",
+  "version": "1.0.0",
+  "runtime": "main",
+  "auth": "custom",
+  "fields": [
+    {
+      "name": "phone",
+      "label": "Телефон",
+      "type": "text",
+      "required": true,
+      "placeholder": "+79990001122",
+      "help": "Номер телефона аккаунта в международном формате"
+    },
+    {
+      "name": "apiId",
+      "label": "API ID",
+      "type": "number",
+      "help": "api_id с my.telegram.org; можно оставить по умолчанию"
+    },
+    {
+      "name": "apiHash",
+      "label": "API Hash",
+      "type": "text",
+      "help": "api_id с my.telegram.org; можно оставить по умолчанию"
+    }
+  ],
+  "capabilities": { "media": true, "history": true, "typing": true }
+}

@@ -88,3 +88,10 @@ export const INBOX_INVITES_PATH = `/inbox/${_INVITES_PATH}`;
 export const SPACE_SETTINGS_PATH = '/space-settings/';
 
 export const ROOM_SETTINGS_PATH = '/room-settings/';
+
+// MSHH: unified profiles & chats surface (additive; see docs/CINNY_WIRING.md)
+export const MSHH_PATH = '/mshh';
+export const _MSHH_PROFILES_PATH = 'profiles/';
+export const _MSHH_PROFILE_NEW_PATH = 'profiles/new/';
+export const _MSHH_PROFILE_EDIT_PATH = 'profiles/:profileId/';
+export const _MSHH_CHAT_PATH = 'chat/:profileId/:chatId/';

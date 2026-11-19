@@ -20,8 +20,8 @@ import { getFallbackSession } from './app/state/sessions';
 
 document.body.classList.add(configClass, varsClass);
 
-// Register Service Worker
-if ('serviceWorker' in navigator) {
+// Register Service Worker (skipped inside MSHH/Electron — docs/CINNY_WIRING.md)
+if ('serviceWorker' in navigator && !window.mshh?.desktop) {
   const swUrl =
     import.meta.env.MODE === 'production'
       ? `${trimTrailingSlash(import.meta.env.BASE_URL)}/sw.js`
@@ -48,8 +48,14 @@ const mountApp = () => {
   const rootContainer = document.getElementById('root');
 
   if (rootContainer === null) {
+    // eslint-disable-next-line no-console
     console.error('Root container element not found!');
     return;
+  }
+
+  // MSHH: boot the module core when running inside the Electron shell
+  if (window.mshh?.desktop) {
+    import('./mshh/boot').then((m) => m.bootMshh());
   }
 
   const root = createRoot(rootContainer);

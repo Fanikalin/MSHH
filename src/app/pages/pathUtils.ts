@@ -23,6 +23,7 @@ import {
   SPACE_ROOM_PATH,
   SPACE_SEARCH_PATH,
   CREATE_PATH,
+  MSHH_PATH,
 } from './paths';
 import { trimLeadingSlash, trimTrailingSlash } from '../utils/common';
 import { HashRouterConfig } from '../hooks/useClientConfig';
@@ -158,3 +159,12 @@ export const getCreatePath = (): string => CREATE_PATH;
 export const getInboxPath = (): string => INBOX_PATH;
 export const getInboxNotificationsPath = (): string => INBOX_NOTIFICATIONS_PATH;
 export const getInboxInvitesPath = (): string => INBOX_INVITES_PATH;
+
+// MSHH paths (additive; see docs/CINNY_WIRING.md)
+export const getMshhPath = (): string => MSHH_PATH;
+export const getMshhProfilesPath = (): string => `${MSHH_PATH}/profiles`;
+export const getMshhProfileNewPath = (): string => `${MSHH_PATH}/profiles/new`;
+export const getMshhProfileEditPath = (profileId: string): string =>
+  `${MSHH_PATH}/profiles/${encodeURIComponent(profileId)}`;
+export const getMshhChatPath = (profileId: string, chatId: string): string =>
+  `${MSHH_PATH}/chat/${encodeURIComponent(profileId)}/${encodeURIComponent(chatId)}`;

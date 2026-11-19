@@ -1,0 +1,23 @@
+{
+  "id": "vk",
+  "name": "VK",
+  "version": "1.0.0",
+  "runtime": "main",
+  "auth": "token",
+  "fields": [
+    {
+      "name": "token",
+      "label": "Токен VK",
+      "type": "password",
+      "required": true,
+      "help": "токен пользователя VK (kate/maruca-стиль); инструкция в README модуля"
+    },
+    {
+      "name": "apiVersion",
+      "label": "Версия API",
+      "type": "text",
+      "placeholder": "5.199"
+    }
+  ],
+  "capabilities": { "media": true, "history": true, "typing": true }
+}

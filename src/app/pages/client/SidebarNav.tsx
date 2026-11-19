@@ -17,6 +17,7 @@ import {
   UnverifiedTab,
   SearchTab,
 } from './sidebar';
+import { MshhTab } from './sidebar/MshhTab';
 import { CreateTab } from './sidebar/CreateTab';
 
 export function SidebarNav() {
@@ -28,6 +29,7 @@ export function SidebarNav() {
         scrollable={
           <Scroll ref={scrollRef} variant="Background" size="0">
             <SidebarStack>
+              <MshhTab />
               <HomeTab />
               <DirectTab />
             </SidebarStack>
