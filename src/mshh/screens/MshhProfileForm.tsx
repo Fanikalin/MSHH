@@ -78,8 +78,8 @@ export function MshhProfileForm() {
   const manifest = useMemo(() => modules.find((m) => m.id === moduleId), [modules, moduleId]);
   const moduleDefaults = useAtomValue(moduleDefaultsAtom);
   const defaultsFor = useMemo(
-    () => (!editing && moduleId ? moduleDefaults[moduleId] : undefined),
-    [moduleDefaults, moduleId, editing]
+    () => (moduleId ? moduleDefaults[moduleId] : undefined),
+    [moduleDefaults, moduleId]
   );
 
   // Prefill once in edit mode, when the profile shows up in state.
@@ -178,14 +178,10 @@ export function MshhProfileForm() {
   };
 
   const renderField = (field: ModuleField) => {
-    const fieldHelp = (target: ModuleField): string | undefined =>
-      !editing && defaultsFor && target.name in defaultsFor
-        ? 'встроенные ключи — менять не нужно'
-        : target.help;
     switch (field.type) {
       case 'boolean':
         return (
-          <FieldRow key={field.name} label={fieldLabel(field)} help={fieldHelp(field)}>
+          <FieldRow key={field.name} label={fieldLabel(field)} help={field.help}>
             <Switch
               value={formConfig[field.name] === true}
               onChange={(on) => setFieldValue(field.name, on)}
@@ -198,7 +194,7 @@ export function MshhProfileForm() {
             key={field.name}
             label={fieldLabel(field)}
             required={field.required}
-            help={fieldHelp(field)}
+            help={field.help}
           >
             <select
               value={formConfig[field.name] === undefined ? '' : String(formConfig[field.name])}
@@ -230,7 +226,7 @@ export function MshhProfileForm() {
             key={field.name}
             label={fieldLabel(field)}
             required={field.required}
-            help={fieldHelp(field)}
+            help={field.help}
           >
             <Input
               type={inputType}
@@ -349,7 +345,9 @@ export function MshhProfileForm() {
                 >
                   <Input value={name} onChange={(evt) => setName(evt.currentTarget.value)} />
                 </FieldRow>
-                {(manifest?.fields ?? []).map(renderField)}
+                {(manifest?.fields ?? [])
+                  .filter((field) => !defaultsFor || !(field.name in defaultsFor))
+                  .map(renderField)}
                 {error && (
                   <Box direction="Column" gap="100">
                     <Text size="T200" style={{ color: color.Critical.Main }}>
