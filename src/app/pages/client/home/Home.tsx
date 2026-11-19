@@ -65,6 +65,9 @@ import {
 import { UseStateProvider } from '../../../components/UseStateProvider';
 import { JoinAddressPrompt } from '../../../components/join-address-prompt';
 import { _RoomSearchParams } from '../../paths';
+import { MshhStoreProvider } from '../../../../mshh/MshhStoreProvider';
+import { UnifiedChats } from '../../../../mshh/components/UnifiedChats';
+import { MshhChatView } from '../../../../mshh/components/MshhChatView';
 
 type HomeMenuProps = {
   requestClose: () => void;
@@ -221,6 +224,11 @@ export function Home() {
     return items;
   }, [mx, rooms, closedCategories, roomToUnread, selectedRoomId]);
 
+  const activitySortedRooms = useMemo(
+    () => Array.from(rooms).sort(factoryRoomIdByActivity(mx)),
+    [mx, rooms]
+  );
+
   const virtualizer = useVirtualizer({
     count: sortedRooms.length,
     getScrollElement: () => scrollRef.current,
@@ -233,12 +241,10 @@ export function Home() {
   );
 
   return (
-    <PageNav>
+    <MshhStoreProvider>
+      <PageNav>
       <HomeHeader />
-      {noRoomToDisplay ? (
-        <HomeEmpty />
-      ) : (
-        <PageNavContent scrollRef={scrollRef}>
+      <PageNavContent scrollRef={scrollRef}>
           <Box direction="Column" gap="300">
             <NavCategory>
               <NavItem variant="Background" radii="400" aria-selected={createRoomSelected}>
@@ -312,6 +318,10 @@ export function Home() {
                 </NavLink>
               </NavItem>
             </NavCategory>
+            <UnifiedChats sortedRoomIds={activitySortedRooms} />
+            {noRoomToDisplay ? (
+              <HomeEmpty />
+            ) : (
             <NavCategory>
               <NavCategoryHeader>
                 <RoomNavCategoryButton
@@ -354,9 +364,11 @@ export function Home() {
                 })}
               </div>
             </NavCategory>
+            )}
           </Box>
         </PageNavContent>
-      )}
     </PageNav>
+    <MshhChatView />
+    </MshhStoreProvider>
   );
 }

@@ -30,12 +30,14 @@ import { Devices } from './devices';
 import { EmojisStickers } from './emojis-stickers';
 import { DeveloperTools } from './developer-tools';
 import { About } from './about';
+import { Profiles } from './profiles';
 import { UseStateProvider } from '../../components/UseStateProvider';
 import { stopPropagation } from '../../utils/keyboard';
 import { LogoutDialog } from '../../components/LogoutDialog';
 
 export enum SettingsPages {
   GeneralPage,
+  ProfilesPage,
   AccountPage,
   NotificationPage,
   DevicesPage,
@@ -61,6 +63,11 @@ const useSettingsMenuItems = (): SettingsMenuItem[] =>
       {
         page: SettingsPages.AccountPage,
         name: 'Account',
+        icon: Icons.User,
+      },
+      {
+        page: SettingsPages.ProfilesPage,
+        name: 'Профили',
         icon: Icons.User,
       },
       {
@@ -215,6 +222,9 @@ export function Settings({ initialPage, requestClose }: SettingsProps) {
       )}
       {activePage === SettingsPages.AccountPage && (
         <Account requestClose={handlePageRequestClose} />
+      )}
+      {activePage === SettingsPages.ProfilesPage && (
+        <Profiles requestClose={handlePageRequestClose} />
       )}
       {activePage === SettingsPages.NotificationPage && (
         <Notifications requestClose={handlePageRequestClose} />
