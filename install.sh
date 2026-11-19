@@ -44,6 +44,11 @@ chmod +x "$BIN_DIR/mshh"
 
 # --- иконка и .desktop ---
 mkdir -p "$ICON_DIR" "$APPS_DIR"
+# старый service worker (из ранних сборок/браузерных сессий) раздаёт
+# устаревший бандл — при каждом обновлении вычищаем его и HTTP-кэши
+rm -rf "$HOME/.config/MSHH/Service Worker" \
+       "$HOME/.config/MSHH/Cache" \
+       "$HOME/.config/MSHH/Code Cache" 2>/dev/null || true
 if [ -f "$REPO_DIR/assets/mshh-icon.png" ]; then
   cp -f "$REPO_DIR/assets/mshh-icon.png" "$ICON_DIR/mshh.png"
 fi
