@@ -43,8 +43,25 @@ function registerIpc({ ipcMain, store, manager, bus, getWin, appVersion }) {
     ),
   })));
 
-  ipcMain.handle('mshh:profiles.create', wrap(async ({ moduleId, name, config }) => {
+  ipcMain.handle('mshh:profiles.create', wrap(async ({ moduleId, name, config, adoptPreview }) => {
     const profile = store.create({ moduleId, name, config, enabled: true });
+    if (adoptPreview) {
+      // усыновление QR-сессии из формы: каталог сессии переезжает в профиль,
+      // при старте раннера сессия восстанавливается мгновенно (без нового QR)
+      const previewId = `preview_${moduleId}`;
+      const old = manager.runnerFor(previewId);
+      if (old) {
+        await manager.stopRunner(previewId, { silent: true });
+        manager.runners.delete(previewId);
+      }
+      bus.removeProfilePrompts(previewId);
+      const previewDir = manager.dataDirFor(previewId);
+      const targetDir = manager.dataDirFor(profile.id);
+      if (fs.existsSync(previewDir)) {
+        fs.rmSync(targetDir, { recursive: true, force: true });
+        fs.renameSync(previewDir, targetDir);
+      }
+    }
     // подключение — в фоне: connect() может висеть на QR/код-промпте до минуты,
     // IPC не должен блокироваться; статус и промпты уходят событиями
     if (profile.enabled) manager.ensureRunner(profile).catch(() => {});
@@ -170,6 +187,46 @@ function registerIpc({ ipcMain, store, manager, bus, getWin, appVersion }) {
       properties: ['openFile', 'multiSelections'],
     });
     return res.canceled ? [] : res.filePaths;
+  }));
+
+  ipcMain.handle('mshh:formPreview.start', wrap(async ({ moduleId, config }) => {
+    const module_ = manager.moduleById(moduleId);
+    if (!module_ || module_.manifest.runtime !== 'main') throw new Error('Модуль не поддерживает QR-превью');
+    const previewId = `preview_${moduleId}`;
+    const old = manager.runnerFor(previewId);
+    if (old) await manager.stopRunner(previewId, { silent: true });
+    bus.removeProfilePrompts(previewId);
+    const previewDir = manager.dataDirFor(previewId);
+    fs.rmSync(previewDir, { recursive: true, force: true }); // каждая форма — свежая QR-сессия
+    fs.mkdirSync(previewDir, { recursive: true });
+    const previewProfile = {
+      id: previewId,
+      moduleId,
+      name: `preview ${moduleId}`,
+      enabled: true,
+      config: config && typeof config === 'object' ? { ...config } : {},
+      createdAt: Date.now(),
+    };
+    const { ProfileRunner } = require('./runner.cjs');
+    const runner = new ProfileRunner({
+      profile: previewProfile,
+      module_,
+      dataDir: previewDir,
+      bus,
+      log,
+    });
+    manager.runners.set(previewId, runner);
+    runner.start().catch(() => {}); // ошибки видны статусом промпта в форме
+    return { previewId };
+  }));
+
+  ipcMain.handle('mshh:formPreview.stop', wrap(async ({ moduleId }) => {
+    const previewId = `preview_${moduleId}`;
+    const old = manager.runnerFor(previewId);
+    if (old) await manager.stopRunner(previewId, { silent: true });
+    bus.removeProfilePrompts(previewId);
+    manager.runners.delete(previewId);
+    return null;
   }));
 
   ipcMain.handle('mshh:getPendingPrompts', wrap(async () => bus.getPendingPrompts()));

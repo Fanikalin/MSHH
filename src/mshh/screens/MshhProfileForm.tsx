@@ -248,7 +248,8 @@ export function MshhProfileForm() {
         const created = await api.createProfile(
           manifest.id,
           name.trim() || manifest.name,
-          buildConfig()
+          buildConfig(),
+          true // усыновить QR-сессию превью, если пользователь уже отсканировал
         );
         setCreatedId(created.id); // auth prompts (code/QR) now surface via PromptDialog
         await api.connectProfile(created.id);
@@ -322,9 +323,10 @@ export function MshhProfileForm() {
   // Промпты модуля (QR или код) для любых его профилей — инлайн в форме.
   const modulePrompts = useMemo(() => {
     if (!manifest) return [];
+    const previewId = `preview_${manifest.id}`;
     return [...profilePrompts.values()].filter((ev) => {
       const prof = profiles.find((p) => p.id === ev.profileId);
-      return prof?.moduleId === manifest.id;
+      return prof?.moduleId === manifest.id || ev.profileId === previewId;
     });
   }, [profilePrompts, profiles, manifest]);
   const qrPromptEv = modulePrompts.find((ev) => ev.payload.kind === 'qr');
@@ -484,6 +486,8 @@ export function MshhProfileForm() {
                         setName(module.name);
                         // персональная сборка: вшитые значения — предзаполнение
                         setFormConfig({ ...(moduleDefaults[module.id] ?? {}) });
+                        // QR-превью: сессия авторизации стартует сразу при выборе
+                        void api.formPreviewStart(module.id, moduleDefaults[module.id] ?? {});
                       }}
                     >
                       <Box direction="Column" gap="100" style={{ padding: config.space.S300 }}>

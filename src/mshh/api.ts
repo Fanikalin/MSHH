@@ -29,8 +29,8 @@ async function invoke<T>(channel: string, payload?: unknown): Promise<T> {
 
 export const api = {
   getState: () => invoke<MshhState>('getState'),
-  createProfile: (moduleId: string, name: string, config: Record<string, unknown>) =>
-    invoke<Profile>('profiles.create', { moduleId, name, config }),
+  createProfile: (moduleId: string, name: string, config: Record<string, unknown>, adoptPreview?: boolean) =>
+    invoke<Profile>('profiles.create', { moduleId, name, config, adoptPreview }),
   updateProfile: (id: string, patch: Record<string, unknown>) =>
     invoke<Profile>('profiles.update', { id, patch }),
   deleteProfile: (id: string) => invoke<null>('profiles.delete', { id }),
@@ -42,6 +42,9 @@ export const api = {
   respondPrompt: (profileId: string, promptId: string, value: string) =>
     invoke<{ delivered: boolean }>('profiles.respond', { profileId, promptId, value }),
   getPendingPrompts: () => invoke<MshhEvent[]>('getPendingPrompts'),
+  formPreviewStart: (moduleId: string, config?: Record<string, unknown>) =>
+    invoke<{ previewId: string }>('formPreview.start', { moduleId, config }),
+  formPreviewStop: (moduleId: string) => invoke<null>('formPreview.stop', { moduleId }),
   listChats: () => invoke<Chat[]>('chats.list'),
   history: (profileId: string, chatId: string, beforeTs?: number, limit?: number) =>
     invoke<Message[]>('chats.history', { profileId, chatId, beforeTs, limit }),

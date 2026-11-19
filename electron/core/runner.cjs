@@ -20,7 +20,8 @@ class ProfileRunner {
     this.lastError = null;
     this.chats = new Map(); // chatId -> Chat
     this.recent = new Map(); // chatId -> Message[]
-    this.prompts = new Map(); // promptId -> { resolve, timer }
+    this.prompts = new Map(); // promptId -> { resolve, reject, timer }
+    this.earlyResponses = new Map(); // ответ интерфейса, пришедший до появления промпта
     this.openChatId = null; // chat currently open in UI → no unread bump
     this.api = null;
     this.stopped = false;
@@ -61,6 +62,7 @@ class ProfileRunner {
     } catch (e) {
       const msg = e?.message || String(e);
       this.lastError = msg;
+      this.log('error', `connect failed: ${msg}\n${e?.stack || ''}`);
       this.setStatus('error');
       await this.stop({ silent: true });
       throw new Error(msg);
@@ -190,6 +192,13 @@ class ProfileRunner {
   // ---- prompts ----
   prompt(req) {
     return new Promise((resolve, reject) => {
+      // интерфейс мог отправить ответ до того, как модуль спросил промпт
+      const early = this.earlyResponses.get('value');
+      if (early !== undefined) {
+        this.earlyResponses.delete('value');
+        resolve({ value: early });
+        return;
+      }
       const promptId = crypto.randomUUID();
       const timeoutMs = req?.timeoutMs || 180000;
       const timer = setTimeout(() => {
@@ -210,12 +219,17 @@ class ProfileRunner {
   }
 
   respond(promptId, value) {
+    const val = String(value ?? '');
     const p = this.prompts.get(promptId);
-    if (!p) return false;
-    this.prompts.delete(promptId);
-    clearTimeout(p.timer);
-    this.bus.clearLastPrompt(this.profile.id, promptId);
-    p.resolve({ value });
+    if (p) {
+      this.prompts.delete(promptId);
+      clearTimeout(p.timer);
+      this.bus.clearLastPrompt(this.profile.id, promptId);
+      p.resolve({ value: val });
+      return true;
+    }
+    // промпта ещё нет — сохраним ответ, prompt() заберёт его при появлении
+    this.earlyResponses.set('value', val);
     return true;
   }
 
