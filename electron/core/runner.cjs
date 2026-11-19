@@ -92,6 +92,7 @@ class ProfileRunner {
   setStatus(state, extra = {}) {
     this.status = state;
     if (state === 'online') this.lastError = null;
+    this.log('info', `статус: ${state}${this.lastError ? ` (${this.lastError})` : ''}`);
     this.bus.emitModuleEvent(this.profile.id, 'status', { state, error: this.lastError, ...extra });
   }
 
@@ -196,6 +197,7 @@ class ProfileRunner {
         reject(new Error('время ожидания ввода истекло'));
       }, timeoutMs);
       this.prompts.set(promptId, { resolve, reject, timer });
+      this.log('info', `промпт: ${req?.kind || 'text'} — ждём ввод пользователя`);
       this.bus.emitModuleEvent(this.profile.id, 'prompt', {
         promptId,
         kind: req?.kind || 'text',

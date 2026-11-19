@@ -431,74 +431,85 @@ export function MshhProfileForm() {
                 </Box>
               </>
             ) : (
-              <>
-                <FieldRow
-                  label="Название профиля"
-                  required
-                  help="Как профиль называется в списках чатов"
-                >
-                  <Input value={name} onChange={(evt) => setName(evt.currentTarget.value)} />
-                </FieldRow>
-                {(manifest?.fields ?? [])
-                  .filter((field) => !defaultsFor || !(field.name in defaultsFor))
-                  .map(renderField)}
-                {createdId && !qrImage && !error && (
-                  <Box alignItems="Center" gap="200">
-                    <Spinner size="200" variant="Secondary" fill="Soft" />
-                    <Text size="T200" priority="300">
-                      Готовим QR — отсканируйте его в Telegram (Настройки → Устройства → Связать устройство)
-                    </Text>
+              <Box direction="Row" wrap="Wrap" gap="400" alignItems="Start">
+                <Box direction="Column" gap="400" style={{ flex: '1 1 260px', minWidth: 240 }}>
+                  <FieldRow
+                    label="Название профиля"
+                    required
+                    help="Как профиль называется в списках чатов"
+                  >
+                    <Input value={name} onChange={(evt) => setName(evt.currentTarget.value)} />
+                  </FieldRow>
+                  {(manifest?.fields ?? [])
+                    .filter((field) => !defaultsFor || !(field.name in defaultsFor))
+                    .map(renderField)}
+                  {error && (
+                    <Box direction="Column" gap="100">
+                      <Text size="T200" style={{ color: color.Critical.Main }}>
+                        {error}
+                      </Text>
+                      {(createdId ?? editing) && !busy && (
+                        <Button size="300" fill="Soft" onClick={() => retryConnect()}>
+                          <Text as="span" size="B300">
+                            Повторить подключение
+                          </Text>
+                        </Button>
+                      )}
+                    </Box>
+                  )}
+                  {busy && (
+                    <Box alignItems="Center" gap="200">
+                      <Spinner size="200" variant="Secondary" fill="Soft" />
+                      <Text size="T200" priority="300">
+                        Подключение…
+                      </Text>
+                    </Box>
+                  )}
+                  <Box>
+                    <Button
+                      variant="Primary"
+                      aria-disabled={busy}
+                      onClick={() => submit()}
+                      before={busy ? <Spinner size="200" variant="Primary" fill="Soft" /> : undefined}
+                    >
+                      <Text as="span" size="B400">
+                        {editing ? 'Сохранить' : 'Создать и подключить'}
+                      </Text>
+                    </Button>
                   </Box>
-                )}
-                {qrImage && (
-                  <Box direction="Column" alignItems="Center" gap="100">
-                    <img
-                      src={qrImage}
-                      alt="QR для входа в Telegram"
-                      width={220}
-                      height={220}
-                      style={{ borderRadius: config.radii.R300 }}
-                    />
-                    <Text size="T200" priority="300" align="Center">
-                      Отсканируйте в Telegram: Настройки → Устройства → Связать устройство
-                    </Text>
-                  </Box>
-                )}
-                {error && (
-                  <Box direction="Column" gap="100">
-                    <Text size="T200" style={{ color: color.Critical.Main }}>
-                      {error}
-                    </Text>
-                    {(createdId ?? editing) && !busy && (
-                      <Button size="300" fill="Soft" onClick={() => retryConnect()}>
-                        <Text as="span" size="B300">
-                          Повторить подключение
+                </Box>
+                {(createdId || qrImage) && (
+                  <Box
+                    direction="Column"
+                    alignItems="Center"
+                    justifyContent="Center"
+                    gap="100"
+                    style={{ flex: '0 0 230px' }}
+                  >
+                    {qrImage ? (
+                      <>
+                        <img
+                          src={qrImage}
+                          alt="QR для входа в Telegram"
+                          width={200}
+                          height={200}
+                          style={{ borderRadius: config.radii.R300 }}
+                        />
+                        <Text size="T200" priority="300" align="Center">
+                          Отсканируйте в Telegram: Настройки → Устройства → Связать устройство
                         </Text>
-                      </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Spinner size="300" variant="Secondary" fill="Soft" />
+                        <Text size="T200" priority="300" align="Center">
+                          Готовим QR…
+                        </Text>
+                      </>
                     )}
                   </Box>
                 )}
-                {busy && (
-                  <Box alignItems="Center" gap="200">
-                    <Spinner size="200" variant="Secondary" fill="Soft" />
-                    <Text size="T200" priority="300">
-                      Подключение…
-                    </Text>
-                  </Box>
-                )}
-                <Box>
-                  <Button
-                    variant="Primary"
-                    aria-disabled={busy}
-                    onClick={() => submit()}
-                    before={busy ? <Spinner size="200" variant="Primary" fill="Soft" /> : undefined}
-                  >
-                    <Text as="span" size="B400">
-                      {editing ? 'Сохранить' : 'Создать и подключить'}
-                    </Text>
-                  </Button>
-                </Box>
-              </>
+              </Box>
             )}
           </Box>
         </Scroll>
