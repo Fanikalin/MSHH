@@ -421,6 +421,9 @@ export function MshhProfileForm() {
                 }
                 setFieldValue(field.name, value);
               }}
+              onKeyDown={(evt) => {
+                if (evt.key === 'Enter') submit();
+              }}
               placeholder={field.placeholder}
               required={field.required}
             />

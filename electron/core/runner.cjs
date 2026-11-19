@@ -21,6 +21,7 @@ class ProfileRunner {
     this.chats = new Map(); // chatId -> Chat
     this.recent = new Map(); // chatId -> Message[]
     this.prompts = new Map(); // promptId -> { resolve, reject, timer }
+    this.earlyResponses = new Map(); // ответ интерфейса, пришедший до появления промпта
     this.previewAdopt = null; // колбэк: авторизованная preview-сессия → настоящий профиль
     this.openChatId = null; // chat currently open in UI → no unread bump
     this.api = null;
