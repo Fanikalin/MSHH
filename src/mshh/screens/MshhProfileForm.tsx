@@ -21,9 +21,8 @@ import { NavItem } from '../../app/components/nav';
 import { getMshhPath, getMshhProfilesPath } from '../../app/pages/pathUtils';
 import { api } from '../api';
 import { clearPrompt, establishedProfiles, moduleDefaultsAtom, profilesAtom, promptsAtom, modulesAtom } from '../state';
-import { ModuleField } from '../types';
+import { ModuleField, MshhEvent } from '../types';
 import { StatusDot, profileStatusText } from '../components/StatusDot';
-import { PromptDialog } from './PromptDialog';
 
 type ConfigValue = string | number | boolean;
 type ProfileConfig = Record<string, ConfigValue>;
@@ -54,6 +53,55 @@ function FieldRow({ label, required, help, children }: FieldRowProps) {
         </Text>
       )}
     </Box>
+  );
+}
+
+/** Инлайн-ввод ответа на промпт модуля (код подтверждения и т.п.) — без модалки. */
+function InlinePromptInput({ prompt }: { prompt: MshhEvent & { type: 'prompt' } }) {
+  const [value, setValue] = useState('');
+  const [answered, setAnswered] = useState(false);
+  const promptId = prompt.payload.promptId;
+  useEffect(() => {
+    setValue('');
+    setAnswered(false);
+  }, [promptId]);
+
+  const submit = async () => {
+    if (answered) return;
+    const answer = value.trim();
+    if (!answer) return;
+    setAnswered(true);
+    try {
+      await api.respondPrompt(prompt.profileId, promptId, answer);
+    } catch {
+      setAnswered(false);
+      return;
+    }
+    clearPrompt(prompt.profileId, promptId);
+  };
+
+  return (
+    <FieldRow
+      label={prompt.payload.title || 'Код подтверждения'}
+      required
+      help={prompt.payload.detail}
+    >
+      <Box gap="100">
+        <Input
+          value={value}
+          onChange={(evt) => setValue(evt.currentTarget.value)}
+          onKeyDown={(evt) => {
+            if (evt.key === 'Enter') void submit();
+          }}
+          style={{ flex: '1 1 auto' }}
+        />
+        <Button size="300" fill="Soft" onClick={() => void submit()}>
+          <Text as="span" size="B300">
+            Подтвердить
+          </Text>
+        </Button>
+      </Box>
+    </FieldRow>
   );
 }
 
@@ -290,27 +338,22 @@ export function MshhProfileForm() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phoneReady, formConfig]);
 
-  // QR из промпта модуля — инлайн, рядом с полем телефона
-  const ownerId = createdId ?? profileId;
-  const ownerPrompt = ownerId ? profilePrompts.get(ownerId) : undefined;
-  // QR любого профиля этого модуля (например, возобновлённого после запуска приложения)
-  const moduleQrPrompt = useMemo(() => {
-    if (!manifest) return undefined;
-    for (const ev of profilePrompts.values()) {
-      if (ev.payload.kind !== 'qr' || !ev.payload.qrBase64) continue;
+  // Промпты модуля (QR или код) для любых его профилей — инлайн в форме.
+  const modulePrompts = useMemo(() => {
+    if (!manifest) return [];
+    return [...profilePrompts.values()].filter((ev) => {
       const prof = profiles.find((p) => p.id === ev.profileId);
-      if (prof?.moduleId === manifest.id) return ev;
-    }
-    return undefined;
+      return prof?.moduleId === manifest.id;
+    });
   }, [profilePrompts, profiles, manifest]);
-  const promptEv = ownerPrompt ?? moduleQrPrompt;
+  const qrPromptEv = modulePrompts.find((ev) => ev.payload.kind === 'qr');
+  const codePrompts = modulePrompts.filter(
+    (ev) => ev.payload.kind === 'code' || ev.payload.kind === 'text'
+  );
   const qrImage =
-    promptEv?.payload.kind === 'qr' && promptEv.payload.qrBase64
-      ? `data:image/png;base64,${promptEv.payload.qrBase64}`
+    qrPromptEv?.payload.kind === 'qr' && qrPromptEv.payload.qrBase64
+      ? `data:image/png;base64,${qrPromptEv.payload.qrBase64}`
       : undefined;
-  const promptProfileName = promptEv
-    ? profiles.find((p) => p.id === promptEv.profileId)?.name
-    : undefined;
 
   const retryConnect = async () => {
     const id = createdId ?? profileId;
@@ -499,6 +542,9 @@ export function MshhProfileForm() {
                   {(manifest?.fields ?? [])
                     .filter((field) => !defaultsFor || !(field.name in defaultsFor))
                     .map(renderField)}
+                  {codePrompts.map((ev) => (
+                    <InlinePromptInput key={ev.payload.promptId} prompt={ev} />
+                  ))}
                   {error && (
                     <Box direction="Column" gap="100">
                       <Text size="T200" style={{ color: color.Critical.Main }}>
@@ -534,7 +580,7 @@ export function MshhProfileForm() {
                     </Button>
                   </Box>
                 </Box>
-                {(createdId || qrImage || promptEv) && (
+                {(createdId || qrPromptEv || qrImage) && (
                   <Box
                     direction="Column"
                     alignItems="Center"
@@ -552,9 +598,7 @@ export function MshhProfileForm() {
                           style={{ borderRadius: config.radii.R300 }}
                         />
                         <Text size="T200" priority="300" align="Center">
-                          {promptProfileName
-                            ? `Продолжается вход: «${promptProfileName}». Отсканируйте в Telegram: Настройки → Устройства → Связать устройство`
-                            : 'Отсканируйте в Telegram: Настройки → Устройства → Связать устройство'}
+                          Отсканируйте в Telegram: Настройки → Устройства → Связать устройство
                         </Text>
                       </>
                     ) : (
@@ -572,7 +616,6 @@ export function MshhProfileForm() {
           </Box>
         </Scroll>
       </Box>
-      {(moduleId || editing) && <PromptDialog profileId={createdId ?? profileId} />}
     </Page>
   );
 }
