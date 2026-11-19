@@ -526,19 +526,6 @@ export function MshhProfileForm() {
             ) : (
               <Box direction="Row" wrap="Wrap" gap="400" alignItems="Start">
                 <Box direction="Column" gap="400" style={{ flex: '1 1 260px', minWidth: 240 }}>
-                  <FieldRow
-                    label="Название профиля"
-                    required
-                    help="Как профиль называется в списках чатов"
-                  >
-                    <Input
-                      value={name}
-                      onChange={(evt) => setName(evt.currentTarget.value)}
-                      onKeyDown={(evt) => {
-                        if (evt.key === 'Enter') void submit();
-                      }}
-                    />
-                  </FieldRow>
                   {(manifest?.fields ?? [])
                     .filter((field) => !defaultsFor || !(field.name in defaultsFor))
                     .map(renderField)}
