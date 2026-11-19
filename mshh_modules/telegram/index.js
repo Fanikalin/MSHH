@@ -13,6 +13,7 @@ const { StringSession } = require('telegram/sessions');
 const { Raw } = require('telegram/events');
 const { UpdateConnectionState } = require('telegram/network');
 const { computeCheck } = require('telegram/Password');
+const QRCode = require('qrcode');
 
 // Public Telegram-desktop api credentials — fallback when the profile leaves
 // apiId/apiHash empty (matches the help text in manifest.json).
@@ -43,6 +44,14 @@ const WATCHDOG_INTERVAL_MS = 15000;
 const RECONNECT_BASE_MS = 5000;
 const RECONNECT_MAX_MS = 300000;
 const PROMPT_TIMEOUT_MS = 300000;
+const QR_PROMPT_MS = 30000; // совпадает с QR_CODE_TIMEOUT GramJS — обновление QR каждые 30с
+
+/** Пользователь отказался от QR-входа («Отмена» / пустой ввод) → вход по коду. */
+class QrCancelled extends Error {}
+
+function tgQrUrl(token) {
+  return `tg://login?token=${Buffer.from(token).toString('base64url')}`;
+}
 
 // ---------- small helpers ----------
 
@@ -666,7 +675,58 @@ function create(ctx) {
     }
   }
 
+  /** QR-вход через встроенный helper GramJS: телефон не нужен.
+   *  Отказ пользователя → QrCancelled (authFlow переключится на код). */
+  async function qrLogin(client, creds) {
+    try {
+      await client.signInUserWithQrCode(creds, {
+        qrCode: async ({ token }) => {
+          const png = await QRCode.toBuffer(tgQrUrl(token), { type: 'png', margin: 1, width: 512 });
+          const answer = await ctx.prompt({
+            kind: 'qr',
+            qr: png,
+            title: 'Вход по QR',
+            detail: 'Отсканируйте в Telegram: Настройки → Устройства → Связать устройство',
+            timeoutMs: QR_PROMPT_MS,
+          });
+          if (!answer || answer.value === undefined) throw new QrCancelled();
+          // иное разрешение (таймаут формы) — просто ждём следующий QR-токен
+        },
+        password: async (hint) => {
+          const pwdAnswer = await ctx.prompt({
+            kind: 'text',
+            title: 'Облачный пароль',
+            detail: `На аккаунте включена двухфакторная аутентификация${hint ? ` (подсказка: ${hint})` : ''}`,
+            timeoutMs: PROMPT_TIMEOUT_MS,
+          });
+          const password = String(pwdAnswer?.value ?? '');
+          if (!password) throw new QrCancelled();
+          return password;
+        },
+        onError: async (err) => {
+          if (err instanceof QrCancelled) return true;
+          ctxLog('warn', `qr-вход: ${err?.errorMessage || err?.message}`);
+          return false;
+        },
+      });
+    } catch (e) {
+      if (e instanceof QrCancelled) throw e;
+      if (String(e?.message) === 'AUTH_USER_CANCEL') throw new QrCancelled();
+      throw friendlyError(e, 'Telegram: вход по QR не выполнен');
+    }
+  }
+
   async function authFlow(client, creds, phone) {
+    // Сначала QR — телефон не нужен. «Отмена» → вход по коду.
+    try {
+      await qrLogin(client, creds);
+      return;
+    } catch (e) {
+      if (!(e instanceof QrCancelled)) throw e;
+      ctxLog('info', 'QR-вход отменён — переключаюсь на вход по коду');
+    }
+    if (!phone) throw new Error('Не указан номер телефона — для входа по коду заполните поле «Телефон» и повторите подключение');
+
     const { phoneCodeHash } = await withDeadline(
       client.sendCode(creds, phone),
       SENDCODE_DEADLINE_MS,
@@ -722,8 +782,7 @@ function create(ctx) {
       apiHash:
         String(ctx.config.apiHash || '').trim() || BUNDLED_DEFAULTS?.apiHash || DEFAULT_API_HASH,
     };
-    const phone = String(ctx.config.phone || '').trim();
-    if (!phone) throw new Error('Не указан номер телефона — заполните поле «Телефон» в настройках профиля Telegram');
+    const phone = String(ctx.config.phone || '').trim(); // нужен только для входа по коду
 
     const saved = safe(() => fs.readFileSync(mod._sessionPath, 'utf8').trim(), '') || '';
 
