@@ -14,17 +14,17 @@ export function WelcomePage() {
       >
         <PageHeroSection>
           <PageHero
-            icon={<img width="70" height="70" src={CinnySVG} alt="Cinny Logo" />}
-            title="Welcome to Cinny"
+            icon={<img width="70" height="70" src={CinnySVG} alt="Mshh Logo" />}
+            title="Welcome to Mshh"
             subTitle={
               <span>
-                Yet another matrix client.{' '}
+                Мультипротокольный мессенджер на базе Cinny.{' '}
                 <a
-                  href="https://github.com/cinnyapp/cinny/releases"
+                  href="https://github.com/Fanikalin/MSHH/releases"
                   target="_blank"
                   rel="noreferrer noopener"
                 >
-                  v4.12.8
+                  v0.1.0
                 </a>
               </span>
             }

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, protocol } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +8,14 @@ import { registerIpc } from './ipc.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const appDir = path.resolve(here, '..');
+
+// The built renderer references assets with absolute paths ("/assets/…"), which
+// break under file:// loading. Serve dist/ over a custom standard scheme instead.
+const APP_SCHEME = 'app';
+const APP_ORIGIN = 'app://mshh';
+protocol.registerSchemesAsPrivileged([
+  { scheme: APP_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
+]);
 
 const DEV_URL = process.env.MSHH_DEV_URL ?? 'http://localhost:5173';
 const USE_DEV_SERVER = !app.isPackaged && process.env.MSHH_DEV !== '0';
@@ -64,13 +72,14 @@ function boot() {
 
     mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     mainWindow.webContents.on('will-navigate', (event, url) => {
-      const allowed = USE_DEV_SERVER && url.startsWith(DEV_URL);
+      const allowed =
+        (USE_DEV_SERVER && url.startsWith(DEV_URL)) || url.startsWith(APP_ORIGIN);
       if (!allowed) event.preventDefault();
     });
 
     const loadDist = () => {
       const indexHtml = path.join(appDir, 'dist', 'index.html');
-      if (fs.existsSync(indexHtml)) return mainWindow.loadFile(indexHtml);
+      if (fs.existsSync(indexHtml)) return mainWindow.loadURL(APP_ORIGIN);
       log('error', `dist/index.html not found at ${indexHtml} — run "npm run build"`);
       return Promise.resolve();
     };
@@ -102,6 +111,35 @@ function boot() {
   });
 
   app.whenReady().then(async () => {
+    // SPA server for the built renderer: app://mshh/<path> → <appDir>/dist/<path>
+    const distDir = path.join(appDir, 'dist');
+    const MIME = {
+      '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
+      '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml',
+      '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
+      '.webp': 'image/webp', '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2',
+      '.ttf': 'font/ttf', '.map': 'application/json', '.txt': 'text/plain',
+      '.wasm': 'application/wasm', '.webmanifest': 'application/manifest+json',
+      '.mp4': 'video/mp4', '.webm': 'video/webm', '.pdf': 'application/pdf',
+    };
+    protocol.handle(APP_SCHEME, (request) => {
+      const { pathname } = new URL(request.url);
+      const rel = decodeURIComponent(pathname).replace(/^\/+/, '') || 'index.html';
+      let filePath = path.normalize(path.join(distDir, rel));
+      if (!filePath.startsWith(distDir)) return new Response('forbidden', { status: 403 });
+      let stat = fs.existsSync(filePath) ? fs.statSync(filePath) : undefined;
+      if (!stat || stat.isDirectory()) {
+        // SPA fallback: route paths without an extension get index.html
+        if (!path.extname(rel)) filePath = path.join(distDir, 'index.html');
+        else return new Response('not found', { status: 404 });
+        if (!fs.existsSync(filePath)) return new Response('not found', { status: 404 });
+      }
+      const type = MIME[path.extname(filePath).toLowerCase()] ?? 'application/octet-stream';
+      return new Response(fs.readFileSync(filePath), {
+        headers: { 'content-type': type, 'cache-control': 'no-cache' },
+      });
+    });
+
     store = new ProfilesStore({ file: profilesFileFor(app.getPath('userData')) });
     await store.load();
     host = new ModuleHost({ appDir, userDataDir: app.getPath('userData'), store, log });
