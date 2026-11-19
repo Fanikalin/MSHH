@@ -1,6 +1,6 @@
 import { atom, getDefaultStore } from 'jotai';
 import { api, mshhDesktop } from './api';
-import { Chat, MshhEvent, MshhState, Message, ModuleManifest, Profile } from './types';
+import { Chat, ConfigValue, MshhEvent, MshhState, Message, ModuleManifest, Profile } from './types';
 
 // ---- atoms ----
 
@@ -11,6 +11,8 @@ export const platformAtom = atom<string>('');
 
 export const profilesAtom = atom<Profile[]>([]);
 export const modulesAtom = atom<ModuleManifest[]>([]);
+/** предзаполнение полей из app-defaults.json (персональная сборка) */
+export const moduleDefaultsAtom = atom<Record<string, Record<string, ConfigValue>>>({});
 
 /** key = `${profileId}/${chatId}` */
 export const chatKey = (profileId: string, chatId: string) => `${profileId}/${chatId}`;
@@ -37,6 +39,7 @@ export function setCoreState(state: MshhState) {
   store.set(platformAtom, state.platform);
   store.set(profilesAtom, state.profiles);
   store.set(modulesAtom, state.modules);
+  store.set(moduleDefaultsAtom, state.moduleDefaults ?? {});
 }
 
 export function patchProfile(profileId: string, patch: Partial<Profile>) {

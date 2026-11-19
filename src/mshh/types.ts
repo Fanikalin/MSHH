@@ -39,12 +39,14 @@ export type Message = {
 
 export type ProfileStatus = 'disabled' | 'offline' | 'connecting' | 'online' | 'error' | 'renderer';
 
+export type ConfigValue = string | number | boolean;
+
 export type Profile = {
   id: string;
   moduleId: string;
   name: string;
   enabled: boolean;
-  config: Record<string, string | number | boolean>;
+  config: Record<string, ConfigValue>;
   createdAt: number;
   /** runtime-enriched */
   status: ProfileStatus;
@@ -97,4 +99,6 @@ export type MshhState = {
   platform: string;
   profiles: Profile[];
   modules: ModuleManifest[];
+  /** значения из app-defaults.json модулей (персональная сборка) */
+  moduleDefaults?: Record<string, Record<string, string | number | boolean>>;
 };

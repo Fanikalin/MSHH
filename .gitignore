@@ -8,3 +8,5 @@ devAssets
 # MSHH
 mshh_modules/*/node_modules/
 *.log
+mshh_modules/*/app-defaults.json
+dist-share/

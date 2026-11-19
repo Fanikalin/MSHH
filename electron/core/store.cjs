@@ -155,7 +155,19 @@ async function loadModules(repoRoot, log) {
       log('error', `пропущен ${entry.name}: нет index.js`);
       continue;
     }
-    found.push({ manifest, dir, entry: entryFile });
+    // Персональная сборка: необязательный app-defaults.json с вшитыми
+    // значениями полей (сейчас использует telegram; в git не попадает).
+    let defaults;
+    try {
+      const raw = JSON.parse(fs.readFileSync(path.join(dir, 'app-defaults.json'), 'utf8'));
+      const fieldNames = new Set((manifest.fields || []).map((f) => f.name));
+      defaults = Object.fromEntries(
+        Object.entries(raw).filter(([key]) => fieldNames.has(key) || fieldNames.size === 0)
+      );
+    } catch {
+      defaults = undefined; // файла нет — обычный режим
+    }
+    found.push({ manifest, dir, entry: entryFile, defaults });
   }
   // dependency auto-install for third-party modules with their own package.json
   for (const m of found) {

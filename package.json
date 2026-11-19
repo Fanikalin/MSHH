@@ -20,7 +20,8 @@
     "commit": "git-cz",
     "bump": "node scripts/update-version.js",
     "app": "electron .",
-    "app:dev": "ELECTRON_START_URL=http://localhost:5173 electron ."
+    "app:dev": "ELECTRON_START_URL=http://localhost:5173 electron .",
+    "build:share": "node scripts/build-share.cjs"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": "eslint",

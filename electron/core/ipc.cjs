@@ -37,6 +37,9 @@ function registerIpc({ ipcMain, store, manager, bus, getWin, appVersion }) {
     platform: process.platform,
     profiles: store.list().map(profileState),
     modules: manager.modules.map((m) => m.manifest),
+    moduleDefaults: Object.fromEntries(
+      manager.modules.filter((m) => m.defaults).map((m) => [m.manifest.id, m.defaults])
+    ),
   })));
 
   ipcMain.handle('mshh:profiles.create', wrap(async ({ moduleId, name, config }) => {

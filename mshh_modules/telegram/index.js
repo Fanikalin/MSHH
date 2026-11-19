@@ -19,6 +19,20 @@ const { computeCheck } = require('telegram/Password');
 const DEFAULT_API_ID = 6;
 const DEFAULT_API_HASH = 'eb06d4abfb49dc3eeb1aeb98ae0f581e';
 
+// Персональная сборка (scripts/build-share.cjs): ключи, вшитые в
+// mshh_modules/telegram/app-defaults.json (в git не попадает). Файл
+// необязателен: без него работают публичные DEFAULT_*.
+let BUNDLED_DEFAULTS = null;
+try {
+  const bundled = JSON.parse(fs.readFileSync(path.join(__dirname, 'app-defaults.json'), 'utf8'));
+  const bundledId = Number(bundled?.apiId);
+  if (Number.isFinite(bundledId) && bundledId > 0 && /^[0-9a-f]{32}$/i.test(String(bundled?.apiHash || ''))) {
+    BUNDLED_DEFAULTS = { apiId: bundledId, apiHash: String(bundled.apiHash) };
+  }
+} catch {
+  BUNDLED_DEFAULTS = null; // файла нет — обычный режим репозитория
+}
+
 const SYNC_DIALOGS_LIMIT = 200;
 const HISTORY_DEFAULT_LIMIT = 50;
 const HISTORY_MAX_LIMIT = 200;
@@ -703,8 +717,10 @@ function create(ctx) {
 
     const apiId = Number(ctx.config.apiId);
     const creds = {
-      apiId: Number.isFinite(apiId) && apiId > 0 ? apiId : DEFAULT_API_ID,
-      apiHash: String(ctx.config.apiHash || '').trim() || DEFAULT_API_HASH,
+      apiId:
+        Number.isFinite(apiId) && apiId > 0 ? apiId : (BUNDLED_DEFAULTS?.apiId ?? DEFAULT_API_ID),
+      apiHash:
+        String(ctx.config.apiHash || '').trim() || BUNDLED_DEFAULTS?.apiHash || DEFAULT_API_HASH,
     };
     const phone = String(ctx.config.phone || '').trim();
     if (!phone) throw new Error('Не указан номер телефона — заполните поле «Телефон» в настройках профиля Telegram');

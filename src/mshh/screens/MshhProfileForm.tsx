@@ -20,7 +20,7 @@ import { Page, PageHeader } from '../../app/components/page';
 import { NavItem } from '../../app/components/nav';
 import { getMshhPath, getMshhProfilesPath } from '../../app/pages/pathUtils';
 import { api } from '../api';
-import { modulesAtom, profilesAtom } from '../state';
+import { moduleDefaultsAtom, modulesAtom, profilesAtom } from '../state';
 import { ModuleField } from '../types';
 import { StatusDot, profileStatusText } from '../components/StatusDot';
 import { PromptDialog } from './PromptDialog';
@@ -76,6 +76,11 @@ export function MshhProfileForm() {
   const [createdId, setCreatedId] = useState<string | null>(null);
 
   const manifest = useMemo(() => modules.find((m) => m.id === moduleId), [modules, moduleId]);
+  const moduleDefaults = useAtomValue(moduleDefaultsAtom);
+  const defaultsFor = useMemo(
+    () => (!editing && moduleId ? moduleDefaults[moduleId] : undefined),
+    [moduleDefaults, moduleId, editing]
+  );
 
   // Prefill once in edit mode, when the profile shows up in state.
   const prefilledRef = useRef(false);
@@ -173,10 +178,14 @@ export function MshhProfileForm() {
   };
 
   const renderField = (field: ModuleField) => {
+    const fieldHelp = (target: ModuleField): string | undefined =>
+      !editing && defaultsFor && target.name in defaultsFor
+        ? 'встроенные ключи — менять не нужно'
+        : target.help;
     switch (field.type) {
       case 'boolean':
         return (
-          <FieldRow key={field.name} label={fieldLabel(field)} help={field.help}>
+          <FieldRow key={field.name} label={fieldLabel(field)} help={fieldHelp(field)}>
             <Switch
               value={formConfig[field.name] === true}
               onChange={(on) => setFieldValue(field.name, on)}
@@ -189,7 +198,7 @@ export function MshhProfileForm() {
             key={field.name}
             label={fieldLabel(field)}
             required={field.required}
-            help={field.help}
+            help={fieldHelp(field)}
           >
             <select
               value={formConfig[field.name] === undefined ? '' : String(formConfig[field.name])}
@@ -221,7 +230,7 @@ export function MshhProfileForm() {
             key={field.name}
             label={fieldLabel(field)}
             required={field.required}
-            help={field.help}
+            help={fieldHelp(field)}
           >
             <Input
               type={inputType}
@@ -303,7 +312,8 @@ export function MshhProfileForm() {
                       onClick={() => {
                         setModuleId(module.id);
                         setName(module.name);
-                        setFormConfig({});
+                        // персональная сборка: вшитые значения — предзаполнение
+                        setFormConfig({ ...(moduleDefaults[module.id] ?? {}) });
                       }}
                     >
                       <Box direction="Column" gap="100" style={{ padding: config.space.S300 }}>
