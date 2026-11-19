@@ -53,6 +53,10 @@ class Bus extends EventEmitter {
   emitStateDirty() {
     this.send('mshh:profiles-changed', {});
   }
+
+  emitRename(profileId, name) {
+    this.emit('rename', { profileId, name });
+  }
 }
 
 module.exports = { Bus };

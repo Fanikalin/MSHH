@@ -11,6 +11,8 @@ export type Chat = {
   ts: number;
   unread: number;
   muted?: boolean;
+  /** чат в архивной папке Telegram */
+  archived?: boolean;
   avatarPath?: string;
 };
 

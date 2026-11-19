@@ -167,6 +167,16 @@ app.whenReady().then(async () => {
   store = new ProfileStore(app.getPath('userData'), modules);
   manager = new RunnerManager({ store, userDataDir: app.getPath('userData'), repoRoot: REPO_ROOT, bus, log });
   manager.setModules(modules);
+  // модуль сообщил имя аккаунта → переименовать профиль
+  bus.on('rename', ({ profileId, name }) => {
+    try {
+      store.update(profileId, { name });
+      bus.emitStateDirty();
+      log('info', `профиль ${profileId} переименован: ${name}`);
+    } catch (e) {
+      log('warn', `rename failed: ${e.message}`);
+    }
+  });
   registerIpc({ ipcMain, store, manager, bus, getWin: () => win, appVersion: APP_VERSION, log });
 
   log(

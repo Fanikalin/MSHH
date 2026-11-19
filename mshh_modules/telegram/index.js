@@ -309,6 +309,7 @@ function create(ctx) {
       title: dialog.title || dialog.name || entityName(entity) || chatId,
       ts,
       unread: Number(dialog.unreadCount || 0),
+      archived: dialog.archived === true,
     };
     if (entity.username) chat.subtitle = `@${entity.username}`;
     if (dialog.dialog && dialog.dialog.muted) chat.muted = true;
@@ -318,8 +319,15 @@ function create(ctx) {
   async function syncChats(limit = SYNC_DIALOGS_LIMIT) {
     const client = requireClient();
     const dialogs = await client.getDialogs({ limit });
+    // архивная папка идёт отдельным запросом
+    let archivedDialogs = [];
+    try {
+      archivedDialogs = await client.getDialogs({ limit, archived: true });
+    } catch (e) {
+      ctxLog('warn', `архивные диалоги не получены: ${e.message}`);
+    }
     let emitted = 0;
-    for (const dialog of dialogs) {
+    for (const dialog of [...dialogs, ...archivedDialogs]) {
       try {
         const entry = chatFromDialog(dialog);
         if (!entry) continue;
@@ -868,6 +876,7 @@ function create(ctx) {
       if (me) {
         setMe(me);
         mod._authed = true;
+        emitEvent('profile-name', { name: mod._meName || 'Telegram' });
       } else {
         // 3. interactive auth: phone → code (+ 2FA password), then re-verify.
         await authFlow(client, creds, phone);
@@ -876,6 +885,7 @@ function create(ctx) {
         setMe(me);
         mod._authed = true;
         saveSession(client);
+        emitEvent('profile-name', { name: mod._meName || 'Telegram' });
       }
 
       // 4. initial sync + live loop

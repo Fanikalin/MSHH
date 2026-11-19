@@ -155,6 +155,15 @@ class ProfileRunner {
           this.bus.emitModuleEvent(this.profile.id, 'typing', payload);
           break;
         }
+        case 'profile-name': {
+          // сервер сообщил имя аккаунта — переименовать профиль
+          const name = String(payload?.name || '').trim();
+          if (name && this.profile.name !== name) {
+            this.profile.name = name;
+            this.bus.emitRename(this.profile.id, name);
+          }
+          break;
+        }
         case 'status': {
           if (payload?.state) {
             if (payload.state === 'error') this.lastError = payload.error || 'Ошибка соединения';
