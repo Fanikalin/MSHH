@@ -5,10 +5,15 @@ import {
   Box,
   Button,
   Chip,
+  Dialog,
+  Header,
   Icon,
   IconButton,
   Icons,
   Input,
+  Overlay,
+  OverlayBackdrop,
+  OverlayCenter,
   Scroll,
   Spinner,
   Switch,
@@ -21,7 +26,7 @@ import { NavItem } from '../../app/components/nav';
 import { getMshhPath, getMshhProfilesPath } from '../../app/pages/pathUtils';
 import { api } from '../api';
 import { clearPrompt, establishedProfiles, moduleDefaultsAtom, profilesAtom, promptsAtom, modulesAtom } from '../state';
-import { ModuleField, MshhEvent } from '../types';
+import { ModuleField } from '../types';
 import { StatusDot, profileStatusText } from '../components/StatusDot';
 import { PromptDialog } from './PromptDialog';
 
@@ -30,6 +35,9 @@ type ProfileConfig = Record<string, ConfigValue>;
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
+
+const isPhoneValid = (value: ConfigValue): boolean =>
+  /^\+?\d{10,15}$/.test(String(value).replace(/[^\d+]/g, ''));
 
 const fieldLabel = (field: ModuleField): string => field.label ?? field.name;
 
@@ -54,55 +62,6 @@ function FieldRow({ label, required, help, children }: FieldRowProps) {
         </Text>
       )}
     </Box>
-  );
-}
-
-/** Инлайн-ввод ответа на промпт модуля (код подтверждения и т.п.) — без модалки. */
-function InlinePromptInput({ prompt }: { prompt: MshhEvent & { type: 'prompt' } }) {
-  const [value, setValue] = useState('');
-  const [answered, setAnswered] = useState(false);
-  const promptId = prompt.payload.promptId;
-  useEffect(() => {
-    setValue('');
-    setAnswered(false);
-  }, [promptId]);
-
-  const submit = async () => {
-    if (answered) return;
-    const answer = value.trim();
-    if (!answer) return;
-    setAnswered(true);
-    try {
-      await api.respondPrompt(prompt.profileId, promptId, answer);
-    } catch {
-      setAnswered(false);
-      return;
-    }
-    clearPrompt(prompt.profileId, promptId);
-  };
-
-  return (
-    <FieldRow
-      label={prompt.payload.title || 'Код подтверждения'}
-      required
-      help={prompt.payload.detail}
-    >
-      <Box gap="100">
-        <Input
-          value={value}
-          onChange={(evt) => setValue(evt.currentTarget.value)}
-          onKeyDown={(evt) => {
-            if (evt.key === 'Enter') void submit();
-          }}
-          style={{ flex: '1 1 auto' }}
-        />
-        <Button size="300" fill="Soft" onClick={() => void submit()}>
-          <Text as="span" size="B300">
-            Подтвердить
-          </Text>
-        </Button>
-      </Box>
-    </FieldRow>
   );
 }
 
@@ -213,6 +172,7 @@ export function MshhProfileForm() {
         const nextConfig = buildConfig();
         const existing = profiles.find((p) => p.id === createdId);
         const changed = !existing || JSON.stringify(nextConfig) !== JSON.stringify(existing.config);
+        if (isPhoneValid(nextConfig.phone ?? '')) setCodeModalPhone(String(nextConfig.phone));
         if (changed) {
           await api.updateProfile(createdId, { name, config: nextConfig });
           await api.disconnectProfile(createdId);
@@ -241,6 +201,7 @@ export function MshhProfileForm() {
               config: changed || Object.keys(nextConfig).length ? nextConfig : stuck.config,
             });
           }
+          if (isPhoneValid(nextConfig.phone ?? '')) setCodeModalPhone(String(nextConfig.phone));
           await api.disconnectProfile(stuck.id);
           await api.connectProfile(stuck.id);
           return;
@@ -251,6 +212,7 @@ export function MshhProfileForm() {
           buildConfig(),
           true // усыновить QR-сессию превью, если пользователь уже отсканировал
         );
+        if (isPhoneValid(formConfig.phone ?? '')) setCodeModalPhone(String(formConfig.phone));
         setCreatedId(created.id); // auth prompts (code/QR) now surface via PromptDialog
         await api.connectProfile(created.id);
       }
@@ -297,6 +259,49 @@ export function MshhProfileForm() {
   useEffect(() => {
     if (createdProfile?.status === 'online') navigate(getMshhPath());
   }, [createdProfile?.status, createdProfile, navigate]);
+
+  // Оптимистичное окно кода: открывается мгновенно при подтверждении номера,
+  // код можно вводить до фактической отправки (ядро поставит его в очередь).
+  const [codeModalPhone, setCodeModalPhone] = useState<string | null>(null);
+  const [codeValue, setCodeValue] = useState('');
+  const [codeQueued, setCodeQueued] = useState(false);
+
+  // Код можно ввести до фактической отправки: пустой promptId ставит значение
+  // в очередь ядра, prompt() заберёт его сразу после sendCode.
+  const submitCode = async () => {
+    const id = createdId ?? profileId;
+    const code = codeValue.trim();
+    if (!id || !code) return;
+    const pending = profilePrompts.get(id);
+    if (pending) {
+      await api.respondPrompt(id, pending.payload.promptId, code);
+      clearPrompt(id, pending.payload.promptId);
+    } else {
+      await api.respondPrompt(id, '', code);
+      setCodeQueued(true);
+    }
+  };
+
+  // Выход из окна кода: отмена ожидания (модуль прекращает ждать скан/код).
+  const closeCodeModal = () => {
+    const id = createdId ?? profileId;
+    if (id) {
+      const pending = profilePrompts.get(id);
+      void api.respondPrompt(id, pending?.payload.promptId ?? '', '');
+      if (pending) clearPrompt(id, pending.payload.promptId);
+    }
+    setCodeModalPhone(null);
+  };
+
+  useEffect(() => {
+    if (!codeModalPhone) return undefined;
+    const onKey = (evt: KeyboardEvent) => {
+      if (evt.key === 'Escape') closeCodeModal();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [codeModalPhone]);
 
   // Репо-режим (ключи не вшиты): оба APP-поля заполнены корректно → через 1с
   // после последнего ввода запускаем подключение, модуль выдаёт QR.
@@ -527,9 +532,6 @@ export function MshhProfileForm() {
                   {(manifest?.fields ?? [])
                     .filter((field) => !defaultsFor || !(field.name in defaultsFor))
                     .map(renderField)}
-                  {codePrompts.map((ev) => (
-                    <InlinePromptInput key={ev.payload.promptId} prompt={ev} />
-                  ))}
                   {error && (
                     <Box direction="Column" gap="100">
                       <Text size="T200" style={{ color: color.Critical.Main }}>
@@ -601,7 +603,58 @@ export function MshhProfileForm() {
           </Box>
         </Scroll>
       </Box>
-      {(moduleId || editing) && <PromptDialog profileId={createdId ?? profileId} />}
+      {(moduleId || editing) && !codeModalPhone && (
+        <PromptDialog profileId={createdId ?? profileId} />
+      )}
+      {codeModalPhone && createdProfile?.status !== 'error' && (
+        <Overlay open backdrop={<OverlayBackdrop />}>
+          <OverlayCenter>
+            <Dialog variant="Surface">
+              <Header
+                style={{
+                  padding: `0 ${config.space.S200} 0 ${config.space.S400}`,
+                  borderBottomWidth: config.borderWidth.B300,
+                }}
+                variant="Surface"
+                size="500"
+              >
+                <Box grow="Yes">
+                  <Text size="H4" truncate>
+                    {codePrompts.length > 0 ? 'Код входа Telegram' : 'Отправляем код…'}
+                  </Text>
+                </Box>
+                <IconButton size="300" onClick={() => closeCodeModal()} radii="300" aria-label="Закрыть">
+                  <Icon src={Icons.Cross} />
+                </IconButton>
+              </Header>
+              <Box direction="Column" gap="400" style={{ padding: config.space.S500, maxWidth: 460 }}>
+                <Text size="T300" priority="400">
+                  {codePrompts.length > 0
+                    ? `Мы отправили код в Telegram на номер ${codeModalPhone}. Введите его ниже.`
+                    : `Отправляем код подтверждения на номер ${codeModalPhone} — поле уже готово к вводу.`}
+                </Text>
+                <Input
+                  value={codeValue}
+                  onChange={(evt) => setCodeValue(evt.currentTarget.value)}
+                  onKeyDown={(evt) => {
+                    if (evt.key === 'Enter') void submitCode();
+                  }}
+                  placeholder="Введите код"
+                />
+                <Button
+                  variant="Primary"
+                  onClick={() => void submitCode()}
+                  aria-disabled={codeQueued && codePrompts.length === 0}
+                >
+                  <Text as="span" size="B400">
+                    {codeQueued && codePrompts.length === 0 ? 'Проверяем код…' : 'Подтвердить'}
+                  </Text>
+                </Button>
+              </Box>
+            </Dialog>
+          </OverlayCenter>
+        </Overlay>
+      )}
     </Page>
   );
 }
