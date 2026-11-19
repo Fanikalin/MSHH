@@ -23,6 +23,7 @@ import { api } from '../api';
 import { clearPrompt, establishedProfiles, moduleDefaultsAtom, profilesAtom, promptsAtom, modulesAtom } from '../state';
 import { ModuleField, MshhEvent } from '../types';
 import { StatusDot, profileStatusText } from '../components/StatusDot';
+import { PromptDialog } from './PromptDialog';
 
 type ConfigValue = string | number | boolean;
 type ProfileConfig = Record<string, ConfigValue>;
@@ -318,26 +319,6 @@ export function MshhProfileForm() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoReady, formConfig]);
 
-  // Ввод телефона: пользователь печатает номер → через 1с переподключаем
-  // профиль, модуль уходит во вход по коду (QR гаснет). Повторы не чаще раза в 2с.
-  const lastPhoneConnectRef = useRef(0);
-  const phoneReady = useMemo(() => {
-    if (editing || moduleId !== 'telegram') return false;
-    const phone = String(formConfig.phone ?? '').replace(/[^\d+]/g, '');
-    return /^\+?\d{10,15}$/.test(phone);
-  }, [editing, moduleId, formConfig]);
-
-  useEffect(() => {
-    if (!phoneReady) return undefined;
-    const timer = setTimeout(() => {
-      if (Date.now() - lastPhoneConnectRef.current < 2000) return;
-      lastPhoneConnectRef.current = Date.now();
-      connectOrCreate();
-    }, 1000);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phoneReady, formConfig]);
-
   // Промпты модуля (QR или код) для любых его профилей — инлайн в форме.
   const modulePrompts = useMemo(() => {
     if (!manifest) return [];
@@ -616,6 +597,7 @@ export function MshhProfileForm() {
           </Box>
         </Scroll>
       </Box>
+      {(moduleId || editing) && <PromptDialog profileId={createdId ?? profileId} />}
     </Page>
   );
 }
