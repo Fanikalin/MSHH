@@ -201,6 +201,7 @@ function create(ctx) {
     _meName: undefined,
     _chatCache: new Map(),   // chatId -> Chat
     _peerIndex: new Map(),   // 'u:<id>' | 'chat:<id>' | 'ch:<cid>' -> chatId
+    _folderNames: new Map(), // peerKey -> имя папки Telegram (getDialogFilters)
     _recentSent: new Map(),  // msgId -> ts (dedupe our own send updates)
     _mediaDir: path.join(ctx.dataDir, 'media'),
     _avatarDir: path.join(ctx.dataDir, 'avatars'),
@@ -276,6 +277,94 @@ function create(ctx) {
 
   // ---------- chat/message normalization ----------
 
+  /** peerKey ('u:<id>' | 'chat:<id>' | 'ch:<cid>') для InputPeer из фильтров папок. */
+  function peerKeyOfInput(p) {
+    if (!p) return undefined;
+    if (p.className === 'InputPeerUser') return `u:${String(p.userId)}`;
+    if (p.className === 'InputPeerChat') return `chat:${String(p.chatId)}`;
+    if (p.className === 'InputPeerChannel') return `ch:${String(p.channelId)}`;
+    return undefined;
+  }
+
+  /**
+   * Папки Telegram (messages.getDialogFilters): peerKey → имя папки.
+   * dialog.folderId из getDialogs бывает только 0/главная и 1/архив (архив —
+   * уже флаг archived), пользовательские папки живут в фильтрах.
+   */
+  async function loadFolderNames(client) {
+    mod._folderNames.clear();
+    try {
+      const filters = await client.invoke(new Api.messages.GetDialogFilters({}));
+      for (const f of filters || []) {
+        if (f.className !== 'DialogFilter' && f.className !== 'DialogFilterChatlist') continue;
+        const title = String(f.title || '').trim();
+        if (!title) continue;
+        for (const p of [...(f.pinnedPeers || []), ...(f.includePeers || [])]) {
+          const key = peerKeyOfInput(p);
+          if (key && !mod._folderNames.has(key)) mod._folderNames.set(key, title);
+        }
+      }
+    } catch (e) {
+      ctxLog('debug', `папки не получены: ${e.message}`);
+    }
+  }
+
+  /** id пользователя → имя из кэша чатов (диалоги индексируют имена) или заглушка. */
+  function nameOfUser(uid) {
+    const chatId = mod._peerIndex.get(`u:${uid}`);
+    const t = chatId && mod._chatCache.get(chatId)?.title;
+    return t || `u_${uid}`;
+  }
+
+  /** Человекочитаемое описание сервисного события MessageService. */
+  function serviceText(msg) {
+    const a = msg && msg.action;
+    if (!a) return 'Служебное событие';
+    switch (a.className) {
+      case 'MessageActionChatCreate': return `создал(а) группу «${a.title}»`;
+      case 'MessageActionChannelCreate': return `канал «${a.title}» создан`;
+      case 'MessageActionChatEditTitle': return `сменил(а) название на «${a.title}»`;
+      case 'MessageActionChatEditPhoto': return 'обновил(а) фото чата';
+      case 'MessageActionChatDeletePhoto': return 'удалил(а) фото чата';
+      case 'MessageActionChatAddUser': {
+        const names = (a.users || []).map((id) => nameOfUser(String(id))).join(', ');
+        return names ? `добавил(а) ${names}` : 'добавил(а) участника';
+      }
+      case 'MessageActionChatDeleteUser': return `покинул(а) группу или удалил(а) ${nameOfUser(String(a.userId))}`;
+      case 'MessageActionChatJoinedByLink': return 'присоединился(ась) по ссылке-приглашению';
+      case 'MessageActionChatJoinedByRequest': return 'присоединился(ась) по заявке';
+      case 'MessageActionChatMigrateTo': return 'группа преобразована в супергруппу';
+      case 'MessageActionChannelMigrateFrom': return `группа «${a.title}» преобразована в супергруппу`;
+      case 'MessageActionPinMessage': return 'закрепил(а) сообщение';
+      case 'MessageActionHistoryClear': return 'история сообщений очищена';
+      case 'MessageActionContactSignUp': return 'присоединился(ась) к Telegram';
+      case 'MessageActionTopicCreate': return `создал(а) тему «${a.title}»`;
+      case 'MessageActionTopicEdit': return 'изменил(а) тему';
+      case 'MessageActionSetChatTheme': return 'сменил(а) тему оформления';
+      case 'MessageActionSetChatWallPaper': return 'сменил(а) обои чата';
+      case 'MessageActionScreenshotMessages': return 'сделал(а) скриншот чата';
+      default: return a.className.replace(/^MessageAction/, '').replace(/([a-z])([A-Z])/g, '$1 $2');
+    }
+  }
+
+  /** MessageService → сообщение с текстом-описанием события (flag service). */
+  function serviceMessage(msg, chatId) {
+    const fromId = safe(() => msg.fromId, null);
+    const uid = fromId instanceof Api.PeerUser ? String(fromId.userId) : undefined;
+    const message = {
+      id: String(msg.id),
+      chatId,
+      senderId: uid ? `u_${uid}` : chatId,
+      ts: Number(msg.date || 0) * 1000 || Date.now(),
+      out: msg.out === true,
+      service: true,
+      text: serviceText(msg),
+    };
+    const senderName = uid ? nameOfUser(uid) : chatTitle(chatId);
+    if (senderName) message.senderName = senderName;
+    return message;
+  }
+
   function chatFromDialog(dialog) {
     const entity = dialog.entity;
     if (!entity) return null;
@@ -304,6 +393,8 @@ function create(ctx) {
     }
 
     const ts = Number(dialog.date || (dialog.message && dialog.message.date) || 0) * 1000 || Date.now();
+    // Паритет фич Telegram Desktop: значения флагов всегда явные (true/false/''),
+    // чтобы слияние upsert в runner/renderer корректно снимало флаг при потере.
     const chat = {
       id: chatId,
       kind,
@@ -311,6 +402,16 @@ function create(ctx) {
       ts,
       unread: Number(dialog.unreadCount || 0),
       archived: dialog.archived === true,
+      pinned: dialog.pinned === true,
+      mentions:
+        Number(dialog.unreadMentionsCount || 0) > 0 || dialog.dialog?.unreadMark === true,
+      verified: entity.verified === true,
+      tgFolder: mod._folderNames.get(keys[0]) || '',
+      draft: safe(() => {
+        const d = dialog.dialog?.draft;
+        // raw Api.DraftMessage: message — строка (DraftMessageEmpty без сообщения)
+        return d && d.className === 'DraftMessage' ? String(d.message || '').trim() : '';
+      }, '') || '',
     };
     if (entity.username) chat.subtitle = `@${entity.username}`;
     if (dialog.dialog && dialog.dialog.muted) chat.muted = true;
@@ -320,6 +421,8 @@ function create(ctx) {
   async function syncChats(limit = SYNC_DIALOGS_LIMIT) {
     const client = requireClient();
     const dialogs = await client.getDialogs({ limit });
+    // имена пользовательских папок (для бейджа tgFolder) — до разбора диалогов
+    await loadFolderNames(client);
     // архивная папка идёт отдельным запросом
     let archivedDialogs = [];
     try {
@@ -559,6 +662,25 @@ function create(ctx) {
     })();
   }
 
+  /** Peer из update → chatId из индекса чатов. */
+  function chatIdFromPeer(peer) {
+    if (peer instanceof Api.PeerUser) return mod._peerIndex.get(`u:${String(peer.userId)}`);
+    if (peer instanceof Api.PeerChat) return mod._peerIndex.get(`chat:${String(peer.chatId)}`);
+    if (peer instanceof Api.PeerChannel) return mod._peerIndex.get(`ch:${String(peer.channelId)}`);
+    return undefined;
+  }
+
+  function onServiceMessage(msg) {
+    return resolveChatFromMessage(msg)
+      .then((info) => {
+        if (!info) return;
+        const sm = serviceMessage(msg, info.chatId);
+        touchChat(info.chatId, sm.ts, false);
+        emitEvent('message', sm);
+      })
+      .catch((e) => swallowUpdateError(e, 'сервисное сообщение пропущено'));
+  }
+
   function emitTyping(chatId, fromPeer) {
     if (!chatId) return;
     const who = chatTitle(chatId)
@@ -592,8 +714,55 @@ function create(ctx) {
       }
       if (upd instanceof Api.UpdateNewMessage || upd instanceof Api.UpdateNewChannelMessage) {
         const msg = upd.message;
-        if (!msg || msg.className !== 'Message') return; // skip service messages
+        if (!msg) return;
+        if (msg.className !== 'Message') {
+          // сервисные события (создан чат, сменил аватар, покинул группу…) — текст
+          if (msg.className === 'MessageService') onServiceMessage(msg);
+          return;
+        }
         onNewMessage(msg).catch((e) => swallowUpdateError(e, 'update пропущен'));
+        return;
+      }
+      if (upd instanceof Api.UpdateDialogPinned) {
+        const chatId = chatIdFromPeer(upd.peer);
+        const chat = chatId && mod._chatCache.get(chatId);
+        if (chat) {
+          chat.pinned = upd.pinned === true;
+          emitEvent('chat', { ...chat });
+        }
+        return;
+      }
+      if (upd instanceof Api.UpdateDialogUnreadMark) {
+        const chatId = chatIdFromPeer(upd.peer);
+        const chat = chatId && mod._chatCache.get(chatId);
+        if (chat) {
+          chat.mentions = upd.unread === true;
+          emitEvent('chat', { ...chat });
+        }
+        return;
+      }
+      if (upd instanceof Api.UpdateDraftMessage) {
+        const chatId = chatIdFromPeer(upd.peer);
+        const chat = chatId && mod._chatCache.get(chatId);
+        if (chat) {
+          const d = upd.draft;
+          chat.draft = d && d.className === 'DraftMessage' ? String(d.message || '').trim() : '';
+          emitEvent('chat', { ...chat });
+        }
+        return;
+      }
+      if (upd instanceof Api.UpdateDialogFilter
+        || upd instanceof Api.UpdateDialogFilterOrder
+        || upd instanceof Api.UpdateDialogFilters) {
+        // состав/имена папок изменились — перечитать и переэммитить чаты с новым tgFolder
+        const client = mod._client;
+        if (client && !mod._stopped) {
+          loadFolderNames(client)
+            .then(() => {
+              for (const chat of mod._chatCache.values()) emitEvent('chat', { ...chat });
+            })
+            .catch(() => { /* следующая синхронизация перечитает */ });
+        }
         return;
       }
       if (upd instanceof Api.UpdateEditMessage || upd instanceof Api.UpdateEditChannelMessage) {
@@ -1003,8 +1172,14 @@ function create(ctx) {
         const list = await client.getMessages(peer, params);
         const result = [];
         for (const msg of list) {
-          if (!msg || msg.className !== 'Message') continue;
+          if (!msg) continue;
           try {
+            if (msg.className === 'MessageService') {
+              // сервисные события — читаемое описание с флагом service
+              result.push(serviceMessage(msg, chatId));
+              continue;
+            }
+            if (msg.className !== 'Message') continue;
             result.push(await normalizeMessage(msg, chatId, { download: true }));
           } catch (e) {
             ctxLog('warn', `сообщение истории пропущено: ${e.message}`);

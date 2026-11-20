@@ -2,8 +2,9 @@
 
 // TestMock — офлайн-модуль для тестов MSHH. Без сети и сервера.
 // Повторяет фишки Telegram-модуля: личные чаты/группы/каналы, архив,
-// pinned, unread, аватарки (цветные PNG), входящие по таймеру, эхо-отправка,
-// медиа-сообщения, промпт кода, profile-name.
+// pinned, unread, упоминания @, папки (tgFolder), verified, черновики,
+// сервисные сообщения, аватарки (цветные PNG), входящие по таймеру,
+// эхо-отправка, медиа-сообщения, промпт кода, profile-name.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -66,12 +67,12 @@ module.exports.create = function create(ctx) {
   const later = (fn, ms) => { const t = setTimeout(() => { if (!stopped) fn(); }, ms); timers.push(t); return t; };
 
   const SEED = [
-    { id: 'dm_1', kind: 'dm', title: 'Анна Смирнова', ts: Date.now() - 60000, unread: 2, avatar: [235, 87, 87] },
-    { id: 'dm_2', kind: 'dm', title: 'Борис Котов', ts: Date.now() - 3600000, unread: 0, avatar: [255, 179, 71] },
+    { id: 'dm_1', kind: 'dm', title: 'Анна Смирнова', ts: Date.now() - 60000, unread: 2, mentions: true, avatar: [235, 87, 87] },
+    { id: 'dm_2', kind: 'dm', title: 'Борис Котов', ts: Date.now() - 3600000, unread: 0, draft: 'Проверка черновика', avatar: [255, 179, 71] },
     { id: 'dm_3', kind: 'dm', title: 'Виктор Пепел', ts: Date.now() - 7200000, unread: 1, avatar: [111, 207, 151] },
-    { id: 'gr_1', kind: 'group', title: 'Супергруппа: Разработка MSHH', ts: Date.now() - 120000, unread: 15, avatar: [82, 139, 255] },
+    { id: 'gr_1', kind: 'group', title: 'Супергруппа: Разработка MSHH', ts: Date.now() - 120000, unread: 15, tgFolder: 'Работа', avatar: [82, 139, 255] },
     { id: 'gr_2', kind: 'group', title: 'Супергруппа: Мемы', ts: Date.now() - 5400000, unread: 0, avatar: [186, 104, 200] },
-    { id: 'ch_1', kind: 'channel', title: 'Канал: Новости MSHH', ts: Date.now() - 900000, unread: 0, avatar: [88, 178, 178] },
+    { id: 'ch_1', kind: 'channel', title: 'Канал: Новости MSHH', ts: Date.now() - 900000, unread: 0, verified: true, tgFolder: 'Новости', avatar: [88, 178, 178] },
     { id: 'dm_4', kind: 'dm', title: 'Архив: Старый друг', ts: Date.now() - 86400000 * 30, unread: 0, archived: true, avatar: [140, 140, 140] },
     { id: 'gr_3', kind: 'group', title: 'Архив: События 2024', ts: Date.now() - 86400000 * 60, unread: 3, archived: true, avatar: [96, 96, 96] },
     { id: 'dm_5', kind: 'dm', title: 'Закреплённый: Напоминания', ts: Date.now() - 300000, unread: 0, pinned: true, avatar: [255, 214, 90] },
@@ -87,6 +88,10 @@ module.exports.create = function create(ctx) {
         unread: s.unread, avatarPath: av,
         ...(s.archived ? { archived: true } : {}),
         ...(s.pinned ? { pinned: true } : {}),
+        ...(s.mentions ? { mentions: true } : {}),
+        ...(s.tgFolder ? { tgFolder: s.tgFolder } : {}),
+        ...(s.verified ? { verified: true } : {}),
+        ...(s.draft ? { draft: s.draft } : {}),
       };
       chatSeq.push(chat);
       emit('chat', chat);
@@ -156,8 +161,16 @@ module.exports.create = function create(ctx) {
     },
 
     async loadHistory(chatId, { beforeTs, limit } = {}) {
-      void chatId; void beforeTs; void limit;
-      return [];
+      void beforeTs; void limit;
+      const chat = chatSeq.find((c) => c.id === chatId);
+      // в группах/каналах — сервисное событие как в Telegram (смена названия)
+      if (!chat || chat.kind === 'dm') return [];
+      return [{
+        id: `svc_${chatId}`, chatId,
+        senderId: chatId, senderName: chat.title,
+        ts: Date.now() - 3600000, out: false, service: true,
+        text: `сменил(а) название на «${chat.title}»`,
+      }];
     },
 
     // эхо: отправка видна сразу и приходит входящим эхом (тест цикла отправки)

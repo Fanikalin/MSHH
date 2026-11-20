@@ -13,6 +13,16 @@ export type Chat = {
   muted?: boolean;
   /** чат в архивной папке Telegram */
   archived?: boolean;
+  /** чат закреплён (Telegram pinned) */
+  pinned?: boolean;
+  /** есть непрочитанные упоминания @ */
+  mentions?: boolean;
+  /** имя папки Telegram, в которую входит чат ("" — нет) */
+  tgFolder?: string;
+  /** галочка верификации (канал/паблик) */
+  verified?: boolean;
+  /** черновик сообщения — предпросмотр в списке ("" — нет) */
+  draft?: string;
   avatarPath?: string;
 };
 
@@ -37,6 +47,8 @@ export type Message = {
   replyTo?: string;
   edited?: boolean;
   pending?: boolean;
+  /** сервисное событие (создан чат, сменил аватар, покинул группу…) */
+  service?: boolean;
 };
 
 export type ProfileStatus = 'disabled' | 'offline' | 'connecting' | 'online' | 'error' | 'renderer';

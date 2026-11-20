@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAtom, useAtomValue } from 'jotai';
-import { Box, Icon, IconButton, Icons, IconSrc, Input, Scroll, Text, config } from 'folds';
+import { Badge, Box, Icon, IconButton, Icons, IconSrc, Input, Scroll, Text, config } from 'folds';
 import { PageNavHeader } from '../../app/components/page';
 import { NavItem } from '../../app/components/nav';
 import { UnreadBadge } from '../../app/components/unread-badge/UnreadBadge';
@@ -58,12 +58,45 @@ function ChatRow({ chat, profile, active, onClick }: ChatRowProps) {
         }}
       >
         <ChatAvatarBadge chat={chat} profile={profile} />
-        <Box grow="Yes" style={{ minWidth: 0 }}>
-          <Text size="T300" truncate style={{ minWidth: 0 }}>
-            {chat.title || 'Без названия'}
-          </Text>
+        <Box grow="Yes" direction="Column" style={{ minWidth: 0 }}>
+          <Box alignItems="Center" gap="100" style={{ minWidth: 0 }}>
+            {chat.pinned && <Icon size="100" src={Icons.Pin} />}
+            <Text size="T300" truncate style={{ minWidth: 0 }}>
+              {chat.title || 'Без названия'}
+            </Text>
+            {chat.verified && <Icon size="100" src={Icons.CheckTwice} />}
+          </Box>
+          {chat.draft && (
+            <Text
+              size="L400"
+              priority="300"
+              truncate
+              style={{ minWidth: 0, fontStyle: 'italic' }}
+            >
+              {`Черновик: ${chat.draft}`}
+            </Text>
+          )}
         </Box>
         <Box shrink="No" alignItems="Center" gap="100">
+          {chat.tgFolder && (
+            <Badge variant="Secondary" size="400" fill="Soft" radii="Pill" outlined={false}>
+              <Text as="span" size="L400">
+                {chat.tgFolder}
+              </Text>
+            </Badge>
+          )}
+          {chat.mentions && (
+            <Badge
+              variant="Critical"
+              size="400"
+              fill="Solid"
+              radii="Pill"
+              outlined={false}
+              aria-label="Есть упоминания"
+            >
+              <Icon size="100" src={Icons.Mention} />
+            </Badge>
+          )}
           <Text size="L400" priority="300">
             {formatListTime(chat.ts)}
           </Text>
@@ -130,6 +163,13 @@ export function MshhChatsNav() {
     });
   }, [chats, profileById, moduleById, filters]);
 
+  /** свежие сверху; закреплённые — над всеми в своей секции */
+  const pinnedFirst = useCallback(
+    (a: Chat, b: Chat) =>
+      Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || (b.ts || 0) - (a.ts || 0),
+    []
+  );
+
   const chatsByKind = useMemo(() => {
     const dms: Chat[] = [];
     const groups: Chat[] = [];
@@ -141,8 +181,12 @@ export function MshhChatsNav() {
       else if (chat.kind === 'channel') channels.push(chat);
       else dms.push(chat);
     });
+    dms.sort(pinnedFirst);
+    groups.sort(pinnedFirst);
+    channels.sort(pinnedFirst);
+    archive.sort(pinnedFirst);
     return { dms, groups, channels, archive };
-  }, [visibleChats]);
+  }, [visibleChats, pinnedFirst]);
 
   const folders = useMemo<ChatFolder[]>(() => {
     const result: ChatFolder[] = [];
