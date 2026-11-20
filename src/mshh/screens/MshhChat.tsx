@@ -600,3 +600,10 @@ function MshhChatView() {
     </Page>
   );
 }
+
+/** Remount key: each chat gets its own view instance. */
+export function MshhChat() {
+  const { profileId, chatId } = useParams<{ profileId: string; chatId: string }>();
+  const viewKey = profileId && chatId ? `${profileId}/${chatId}` : 'empty';
+  return <MshhChatView key={viewKey} />;
+}

@@ -314,7 +314,7 @@ export function MshhProfileForm() {
     const id = createdId ?? profileId;
     if (id) {
       const pending = profilePrompts.get(id);
-      api.respondPrompt(id, pending?.payload.promptId ?? '', '').catch(() => {});
+      api.respondPrompt(id, pending?.payload.promptId ?? '', '').catch(() => undefined);
       if (pending) clearPrompt(id, pending.payload.promptId);
     }
     setCodeModalPhone(null);
@@ -522,7 +522,7 @@ export function MshhProfileForm() {
                         // персональная сборка: вшитые значения — предзаполнение
                         setFormConfig({ ...(moduleDefaults[module.id] ?? {}) });
                         // QR-превью: сессия авторизации стартует сразу при выборе
-                        api.formPreviewStart(module.id, moduleDefaults[module.id] ?? {}).catch(() => {});
+                        api.formPreviewStart(module.id, moduleDefaults[module.id] ?? {}).catch(() => undefined);
                       }}
                     >
                       <Box direction="Column" gap="100" style={{ padding: config.space.S300 }}>
