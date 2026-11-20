@@ -178,8 +178,10 @@ function MessageRow({ msg, startGroup, failed }: MessageRowProps) {
   );
 }
 
-/** Unified chat view for non-Matrix profiles. */
-export function MshhChat() {
+/** Unified chat view body for non-Matrix profiles. Exported wrapper sits at
+ * the end of the file and remounts this view per chat: composer draft, picked
+ * files and scroll state must never bleed from one chat into another. */
+function MshhChatView() {
   const { profileId, chatId } = useParams<{ profileId: string; chatId: string }>();
   const navigate = useNavigate();
   const screenSize = useScreenSizeContext();
