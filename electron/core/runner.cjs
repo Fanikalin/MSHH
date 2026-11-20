@@ -23,6 +23,7 @@ class ProfileRunner {
     this.prompts = new Map(); // promptId -> { resolve, reject, timer }
     this.earlyResponses = new Map(); // ответ интерфейса, пришедший до появления промпта
     this.previewAdopt = null; // колбэк: авторизованная preview-сессия → настоящий профиль
+    this.sawAuthPrompt = false; // модуль спрашивал ввод (QR/код) — признак реальной авторизации
     this.openChatId = null; // chat currently open in UI → no unread bump
     this.api = null;
     this.stopped = false;
@@ -103,6 +104,10 @@ class ProfileRunner {
   /** preview-сессия авторизовалась (скан QR + пароль) → создать настоящий профиль */
   triggerPreviewAdopt() {
     if (this.status !== 'online' || !this.profile.id.startsWith('preview_')) return;
+    // Модуль, который уходит в online без единого вопроса к пользователю
+    // (офлайн-заглушки, сессии без авторизации), не должен создавать профиль
+    // одним фактом открытия формы. Усыновление — только после реального ввода.
+    if (!this.sawAuthPrompt) return;
     if (typeof this.previewAdopt !== 'function') return;
     const adopt = this.previewAdopt;
     this.previewAdopt = null;
@@ -225,6 +230,7 @@ class ProfileRunner {
         return;
       }
       const promptId = crypto.randomUUID();
+      this.sawAuthPrompt = true; // модуль реально спросил ввод — усыновление preview допустимо
       const timeoutMs = req?.timeoutMs || 180000;
       const timer = setTimeout(() => {
         this.prompts.delete(promptId);
