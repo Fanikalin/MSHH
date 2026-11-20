@@ -44,9 +44,11 @@ import {
   isSameDay,
 } from '../components/format';
 import { MshhAvatar } from '../components/MshhAvatar';
+import { PeerCard } from '../components/PeerCard';
 import { StatusDot, profileStatusText } from '../components/StatusDot';
 import { EmptyState } from '../components/EmptyState';
 import { PromptDialog } from './PromptDialog';
+import { useMshhT } from '../i18n';
 
 const HISTORY_LIMIT = 50;
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
@@ -65,6 +67,7 @@ const baseName = (path: string): string => path.split(/[\\/]/).pop() ?? path;
 type MediaBlockProps = { media: MessageMedia };
 
 function MediaBlock({ media }: MediaBlockProps) {
+  const t = useMshhT();
   if (media.kind === 'image' && media.path) {
     return (
       <Box style={{ maxWidth: toRem(320) }}>
@@ -90,7 +93,7 @@ function MediaBlock({ media }: MediaBlockProps) {
           before={<Icon size="100" src={Icons.Download} />}
         >
           <Text as="span" size="L400" truncate>
-            {media.name ?? 'Файл'}
+            {media.name ?? t('file.fallback')}
             {media.size ? ` · ${formatBytes(media.size)}` : ''}
           </Text>
         </Chip>
@@ -107,6 +110,7 @@ type MessageRowProps = {
 };
 
 function MessageRow({ msg, startGroup, failed }: MessageRowProps) {
+  const t = useMshhT();
   return (
     <Box
       direction={msg.out ? 'RowReverse' : 'Row'}
@@ -154,17 +158,17 @@ function MessageRow({ msg, startGroup, failed }: MessageRowProps) {
         <Box alignItems="Center" justifyContent={msg.out ? 'End' : 'Start'} gap="100">
           {failed && (
             <Text size="T200" style={{ color: color.Critical.Main }}>
-              Ошибка отправки
+              {t('chat.sendFailed')}
             </Text>
           )}
           {!failed && msg.pending && (
             <Text size="T200" priority="300">
-              отправляется…
+              {t('chat.sending')}
             </Text>
           )}
           {msg.edited && (
             <Text size="T200" priority="300">
-              (изменено)
+              {t('chat.edited')}
             </Text>
           )}
           <Box shrink="No">
@@ -186,6 +190,7 @@ function MshhChatView() {
   const navigate = useNavigate();
   const screenSize = useScreenSizeContext();
   const isMobile = screenSize === ScreenSize.Mobile;
+  const t = useMshhT();
   const profiles = useAtomValue(profilesAtom);
   const modules = useAtomValue(modulesAtom);
   const chatsMap = useAtomValue(chatsAtom);
@@ -200,6 +205,7 @@ function MshhChatView() {
   const [hasMore, setHasMore] = useState(true);
   const [failedIds, setFailedIds] = useState<Set<string>>(new Set());
   const [tick, setTick] = useState(Date.now());
+  const [peerOpen, setPeerOpen] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const nearBottomRef = useRef(true);
@@ -220,6 +226,8 @@ function MshhChatView() {
   // Renderer-runtime Matrix chats render as a stub here — the native room view
   // stays reachable via the Cinny route; the list pane is never left.
   const isMatrixRenderer = profile?.runtime === 'renderer' && profile.moduleId === 'matrix';
+  // карточка профиля чата доступна, если модуль её объявил
+  const peerSupported = module?.capabilities?.peerProfile === true;
 
   // Mark open + read; publish the opened chat for bridges.
   useEffect(() => {
@@ -227,6 +235,7 @@ function MshhChatView() {
     setOpenedChat({ profileId, chatId });
     setHasMore(true);
     setLoadingOlder(false);
+    setPeerOpen(false);
     nearBottomRef.current = true;
     api.openChat(profileId, chatId).catch(() => {
       /* ignore */
@@ -267,7 +276,8 @@ function MshhChatView() {
     return () => clearInterval(timer);
   }, []);
 
-  // Escape returns to the chat list; an open auth prompt keeps its dialog in front.
+  // Escape closes the peer card first, then returns to the chat list; an open
+  // auth prompt keeps its dialog in front.
   useKeyDown(
     window,
     useCallback(
@@ -275,9 +285,13 @@ function MshhChatView() {
         if (!isKeyHotkey('escape', evt)) return;
         const hasPrompt = profileId ? prompts.has(profileId) : prompts.size > 0;
         if (hasPrompt) return;
+        if (peerOpen) {
+          setPeerOpen(false);
+          return;
+        }
         navigate(getMshhPath());
       },
-      [navigate, profileId, prompts]
+      [navigate, profileId, prompts, peerOpen]
     )
   );
 
@@ -430,7 +444,7 @@ function MshhChatView() {
                 variant="Background"
                 fill="None"
                 onClick={() => navigate(getMshhPath())}
-                aria-label="Назад"
+                aria-label={t('chat.back')}
               >
                 <Icon src={Icons.ArrowGoLeft} />
               </IconButton>
@@ -438,7 +452,7 @@ function MshhChatView() {
           )}
           <Box grow="Yes" direction="Column" gap="0" style={{ minWidth: 0 }}>
             <Text size="H4" truncate>
-              {chat?.title || 'Матричный чат'}
+              {chat?.title || t('chat.matrixTitle')}
             </Text>
             <Box alignItems="Center" gap="100">
               {profile && <StatusDot status={profile.status} />}
@@ -449,12 +463,12 @@ function MshhChatView() {
           </Box>
         </PageHeader>
         <EmptyState
-          title={chat?.title || 'Матричный чат'}
-          subtitle="Матричные чаты открываются в нативном клиенте Cinny"
+          title={chat?.title || t('chat.matrixTitle')}
+          subtitle={t('chat.matrixDesc')}
         >
           <Button variant="Primary" onClick={() => navigate(getHomeRoomPath(chatId))}>
             <Text as="span" size="B300">
-              Открыть в Cinny
+              {t('chat.openInCinny')}
             </Text>
           </Button>
         </EmptyState>
@@ -463,15 +477,23 @@ function MshhChatView() {
   }
 
   return (
-    <Page>
-      <PageHeader outlined balance>
+    <Page style={{ position: 'relative' }}>
+      <PageHeader
+        outlined
+        balance
+        onContextMenu={(evt) => {
+          if (!peerSupported) return;
+          evt.preventDefault();
+          setPeerOpen(true);
+        }}
+      >
         {isMobile && (
           <Box shrink="No">
             <IconButton
               variant="Background"
               fill="None"
               onClick={() => navigate(getMshhPath())}
-              aria-label="Назад"
+              aria-label={t('chat.back')}
             >
               <Icon src={Icons.ArrowGoLeft} />
             </IconButton>
@@ -479,7 +501,7 @@ function MshhChatView() {
         )}
         <Box grow="Yes" direction="Column" gap="0" style={{ minWidth: 0 }}>
           <Text size="H4" truncate>
-            {chat?.title || 'Чат'}
+            {chat?.title || t('chat.title')}
           </Text>
           <Box alignItems="Center" gap="100">
             {profile && <StatusDot status={profile.status} />}
@@ -490,6 +512,19 @@ function MshhChatView() {
             </Text>
           </Box>
         </Box>
+        {peerSupported && (
+          <Box shrink="No">
+            <IconButton
+              variant="Background"
+              fill="None"
+              aria-pressed={peerOpen}
+              onClick={() => setPeerOpen((open) => !open)}
+              aria-label={t('peer.cardTitle')}
+            >
+              <Icon src={Icons.Info} />
+            </IconButton>
+          </Box>
+        )}
       </PageHeader>
       <Box grow="Yes" direction="Column" style={{ minHeight: 0 }}>
         <Scroll
@@ -516,7 +551,9 @@ function MshhChatView() {
             {rows}
             {typingActive && (
               <Text size="T200" priority="300">
-                {typing?.who ? `${typing.who} печатает…` : 'печатает…'}
+                {typing?.who
+                  ? t('chat.typingWho', { who: typing.who })
+                  : t('chat.typing')}
               </Text>
             )}
           </Box>
@@ -547,7 +584,7 @@ function MshhChatView() {
                     fill="None"
                     radii="Pill"
                     onClick={() => setFiles((prev) => prev.filter((f) => f.path !== file.path))}
-                    aria-label="Убрать файл"
+                    aria-label={t('chat.removeFile')}
                   >
                     <Icon size="50" src={Icons.Cross} />
                   </IconButton>
@@ -565,7 +602,7 @@ function MshhChatView() {
             variant="Secondary"
             fill="None"
             onClick={() => pickFiles()}
-            aria-label="Прикрепить файл"
+            aria-label={t('chat.attach')}
           >
             <Icon src={Icons.Attachment} />
           </IconButton>
@@ -576,7 +613,7 @@ function MshhChatView() {
               sendTypingThrottled();
             }}
             onKeyDown={handleDraftKeyDown}
-            placeholder="Сообщение"
+            placeholder={t('chat.placeholder')}
             rows={Math.min(4, Math.max(1, draft.split('\n').length))}
             resize="None"
             variant="SurfaceVariant"
@@ -586,7 +623,7 @@ function MshhChatView() {
             variant="Primary"
             onClick={() => handleSend()}
             aria-disabled={sending || (!draft.trim() && files.length === 0)}
-            aria-label="Отправить"
+            aria-label={t('chat.send')}
           >
             {sending ? (
               <Spinner size="200" variant="Primary" fill="Soft" />
@@ -596,6 +633,9 @@ function MshhChatView() {
           </IconButton>
         </Box>
       </Box>
+      {peerOpen && profileId && chatId && (
+        <PeerCard profileId={profileId} chatId={chatId} onClose={() => setPeerOpen(false)} />
+      )}
       <PromptDialog profileId={profileId} />
     </Page>
   );

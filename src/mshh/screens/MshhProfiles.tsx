@@ -34,6 +34,7 @@ import { Profile } from '../types';
 import { MshhAvatar } from '../components/MshhAvatar';
 import { ModuleChip } from '../components/ModuleChip';
 import { StatusDot, profileStatusText } from '../components/StatusDot';
+import { useMshhT } from '../i18n';
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
@@ -42,6 +43,7 @@ const errorMessage = (error: unknown): string =>
 export function MshhProfiles() {
   const profiles = useAtomValue(profilesAtom);
   const navigate = useNavigate();
+  const t = useMshhT();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Profile | null>(null);
@@ -92,14 +94,14 @@ export function MshhProfiles() {
             variant="Background"
             fill="None"
             onClick={() => navigate(getMshhPath())}
-            aria-label="Назад к чатам"
+            aria-label={t('back.toChats')}
           >
             <Icon src={Icons.ArrowGoLeft} />
           </IconButton>
         </Box>
         <Box grow="Yes" style={{ minWidth: 0 }}>
           <Text size="H4" truncate>
-            Профили
+            {t('profiles.title')}
           </Text>
         </Box>
         <Box shrink="No" gap="100">
@@ -107,7 +109,7 @@ export function MshhProfiles() {
             variant="Background"
             fill="None"
             onClick={() => navigate(getMshhSettingsPath())}
-            aria-label="Настройки"
+            aria-label={t('nav.settings')}
           >
             <Icon src={Icons.HorizontalDots} />
           </IconButton>
@@ -118,7 +120,7 @@ export function MshhProfiles() {
             onClick={() => navigate(getMshhProfileNewPath())}
           >
             <Text as="span" size="B300">
-              Добавить профиль
+              {t('profiles.add')}
             </Text>
           </Button>
         </Box>
@@ -147,7 +149,7 @@ export function MshhProfiles() {
               >
                 <Icon size="300" src={Icons.User} />
                 <Text size="T300" priority="300">
-                  Профилей пока нет
+                  {t('profiles.empty')}
                 </Text>
                 <Button
                   variant="Primary"
@@ -156,7 +158,7 @@ export function MshhProfiles() {
                   onClick={() => navigate(getMshhProfileNewPath())}
                 >
                   <Text as="span" size="B400">
-                    Добавить профиль
+                    {t('profiles.add')}
                   </Text>
                 </Button>
               </Box>
@@ -209,7 +211,7 @@ export function MshhProfiles() {
                             onClick={() => run(profile.id, () => api.connectProfile(profile.id))}
                           >
                             <Text as="span" size="B300">
-                              Переподключить
+                              {t('action.reconnect')}
                             </Text>
                           </Button>
                           <Button
@@ -220,7 +222,7 @@ export function MshhProfiles() {
                             onClick={() => run(profile.id, () => api.disconnectProfile(profile.id))}
                           >
                             <Text as="span" size="B300">
-                              Отключить
+                              {t('action.disconnect')}
                             </Text>
                           </Button>
                         </>
@@ -239,7 +241,7 @@ export function MshhProfiles() {
                           }
                         >
                           <Text as="span" size="B300">
-                            Подключить
+                            {t('action.connect')}
                           </Text>
                         </Button>
                       )}
@@ -250,7 +252,7 @@ export function MshhProfiles() {
                         onClick={() => navigate(getMshhProfileEditPath(profile.id))}
                       >
                         <Text as="span" size="B300">
-                          Изменить
+                          {t('action.edit')}
                         </Text>
                       </Button>
                       <Button
@@ -261,7 +263,7 @@ export function MshhProfiles() {
                         onClick={() => setDeleteTarget(profile)}
                       >
                         <Text as="span" size="B300">
-                          Удалить
+                          {t('action.delete')}
                         </Text>
                       </Button>
                     </Box>
@@ -292,16 +294,14 @@ export function MshhProfiles() {
                 size="500"
               >
                 <Box grow="Yes">
-                  <Text size="H4">Удалить профиль</Text>
+                  <Text size="H4">{t('profiles.deleteTitle')}</Text>
                 </Box>
                 <IconButton size="300" radii="300" onClick={() => setDeleteTarget(null)}>
                   <Icon src={Icons.Cross} />
                 </IconButton>
               </Header>
               <Box direction="Column" gap="400" style={{ padding: config.space.S400 }}>
-                <Text priority="400">
-                  Профиль «{deleteTarget?.name}» и его данные сессии будут удалены безвозвратно.
-                </Text>
+                <Text priority="400">{t('profiles.deleteWarn', { name: deleteTarget?.name ?? '' })}</Text>
                 <Box gap="200" justifyContent="End">
                   <Button
                     variant="Critical"
@@ -309,12 +309,12 @@ export function MshhProfiles() {
                     onClick={() => removeProfile()}
                   >
                     <Text as="span" size="B400">
-                      Удалить
+                      {t('action.delete')}
                     </Text>
                   </Button>
                   <Button fill="Soft" onClick={() => setDeleteTarget(null)}>
                     <Text as="span" size="B400">
-                      Отмена
+                      {t('action.cancel')}
                     </Text>
                   </Button>
                 </Box>

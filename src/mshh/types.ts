@@ -97,7 +97,13 @@ export type ModuleManifest = {
   runtime: 'main' | 'renderer';
   auth?: 'password' | 'token' | 'qr' | 'custom';
   fields?: ModuleField[];
-  capabilities?: { media?: boolean; history?: boolean; typing?: boolean };
+  capabilities?: {
+    media?: boolean;
+    history?: boolean;
+    typing?: boolean;
+    peerProfile?: boolean;
+    create?: boolean;
+  };
 };
 
 export type MshhEvent =
@@ -127,4 +133,9 @@ export type MshhState = {
   modules: ModuleManifest[];
   /** значения из app-defaults.json модулей (персональная сборка) */
   moduleDefaults?: Record<string, Record<string, string | number | boolean>>;
+};
+
+/** Сведения о собеседнике/чате от модуля (порядок fields задаёт модуль). */
+export type PeerProfile = {
+  fields: { label: string; value: string }[];
 };

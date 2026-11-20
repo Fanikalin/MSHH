@@ -1,4 +1,4 @@
-import { Chat, MshhEvent, MshhState, Message, Profile } from './types';
+import { Chat, MshhEvent, MshhState, Message, PeerProfile, Profile } from './types';
 
 type Envelope<T> = { ok: true; data: T } | { ok: false; error: string; userError?: boolean };
 
@@ -53,6 +53,8 @@ export const api = {
     invoke<{ previewId: string }>('formPreview.start', { moduleId, config }),
   formPreviewStop: (moduleId: string) => invoke<null>('formPreview.stop', { moduleId }),
   listChats: () => invoke<Chat[]>('chats.list'),
+  getPeerProfile: (profileId: string, chatId: string) =>
+    invoke<PeerProfile>('chats.peerProfile', { profileId, chatId }),
   history: (profileId: string, chatId: string, beforeTs?: number, limit?: number) =>
     invoke<Message[]>('chats.history', { profileId, chatId, beforeTs, limit }),
   send: (

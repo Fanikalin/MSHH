@@ -6,6 +6,7 @@ import { coreErrorAtom, coreReadyAtom, establishedProfiles, profilesAtom } from 
 import { getMshhPath, getMshhProfilesPath } from '../../app/pages/pathUtils';
 import { Welcome } from './Welcome';
 import { PromptDialog } from './PromptDialog';
+import { MshhPrefsScope } from '../prefs';
 
 /**
  * state.ts ingests IPC events through jotai's default store, while the Cinny app
@@ -75,7 +76,9 @@ function MshhGate() {
 export function MshhIndex() {
   return (
     <Provider store={mshhStore}>
-      <MshhGate />
+      <MshhPrefsScope>
+        <MshhGate />
+      </MshhPrefsScope>
     </Provider>
   );
 }

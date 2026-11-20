@@ -150,6 +150,14 @@ function registerIpc({ ipcMain, store, manager, bus, getWin, appVersion, log }) 
 
   ipcMain.handle('mshh:chats.list', wrap(async () => manager.allChats()));
 
+  // Карточка профиля чата: fields/порядок целиком задаёт модуль
+  ipcMain.handle('mshh:chats.peerProfile', wrap(async ({ profileId, chatId }) => {
+    const runner = runnerFor(profileId);
+    if (!runner.api?.getPeerProfile) throw new Error('Модуль не поддерживает просмотр профиля');
+    return runner.api.getPeerProfile(chatId);
+  }));
+
+
   ipcMain.handle('mshh:chats.history', wrap(async ({ profileId, chatId, beforeTs, limit }) => {
     const runner = runnerFor(profileId);
     if (!beforeTs) return runner.recentMessages(chatId);

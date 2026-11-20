@@ -50,5 +50,5 @@
       "placeholder": "необязательно"
     }
   ],
-  "capabilities": { "media": true, "history": true, "typing": true }
+  "capabilities": { "media": true, "history": true, "typing": true, "create": true, "peerProfile": true }
 }

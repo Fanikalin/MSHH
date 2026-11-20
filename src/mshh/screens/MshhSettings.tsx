@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAtomValue } from 'jotai';
 import {
   Box,
@@ -22,11 +22,21 @@ import {
   getMshhProfileEditPath,
   getMshhProfilesPath,
 } from '../../app/pages/pathUtils';
-import { api } from '../api';
+import { api, mediaUrl } from '../api';
 import { modulesAtom, profilesAtom } from '../state';
 import { ModuleManifest, Profile } from '../types';
 import { MshhAvatar } from '../components/MshhAvatar';
 import { ModuleChip } from '../components/ModuleChip';
+import colorMXID from '../../util/colorMXID';
+import { langAtom, MshhLang, setMshhLang, useMshhT } from '../i18n';
+import {
+  MSHH_ACCENTS,
+  MSHH_FONTS,
+  accentAtom,
+  fontAtom,
+  setMshhAccent,
+  setMshhFont,
+} from '../prefs';
 
 /** persisted UI zoom factor (see electron/main.cjs + src/mshh/boot.ts) */
 const ZOOM_KEY = 'mshh_zoom';
@@ -43,12 +53,18 @@ const readSavedZoom = (): number => {
 };
 
 type Tab = 'general' | 'modules' | 'profiles';
+type MshhSettingsTabKey = 'tab.general' | 'tab.modules' | 'tab.profiles';
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'general', label: 'Общие' },
-  { id: 'modules', label: 'Модули' },
-  { id: 'profiles', label: 'Профили' },
+const TABS: { id: Tab; labelKey: MshhSettingsTabKey }[] = [
+  { id: 'general', labelKey: 'tab.general' },
+  { id: 'modules', labelKey: 'tab.modules' },
+  { id: 'profiles', labelKey: 'tab.profiles' },
 ];
+
+/** ?tab=… query param keeps deep links (Модули → «Назад» в форме профиля). */
+const tabFromSearch = (tab: string | null): Tab =>
+  TABS.some(({ id }) => id === tab) ? (tab as Tab) : 'general';
+
 
 function GeneralTab({
   zoom,
@@ -57,53 +73,140 @@ function GeneralTab({
   zoom: number;
   onZoomChange: (zoom: number) => void;
 }) {
+  const t = useMshhT();
+  const fontId = useAtomValue(fontAtom);
+  const accentId = useAtomValue(accentAtom);
+  const langId = useAtomValue(langAtom);
+
   return (
-    <SettingTile
-      title="Масштаб интерфейса"
-      description="Применяется ко всему приложению и сохраняется между запусками"
-      after={
-        <Button
-          size="300"
-          variant="Secondary"
-          fill="Soft"
-          aria-disabled={zoom === 1}
-          onClick={() => onZoomChange(1)}
-        >
-          <Text as="span" size="B300">
-            Сбросить
-          </Text>
-        </Button>
-      }
-    >
-      <Box
-        gap="300"
-        alignItems="Center"
-        style={{ paddingTop: config.space.S200, maxWidth: toRem(480) }}
+    <>
+      <SettingTile
+        title={t('general.zoom')}
+        description={t('general.zoomDesc')}
+        after={
+          <Button
+            size="300"
+            variant="Secondary"
+            fill="Soft"
+            aria-disabled={zoom === 1}
+            onClick={() => onZoomChange(1)}
+          >
+            <Text as="span" size="B300">
+              {t('general.reset')}
+            </Text>
+          </Button>
+        }
       >
-        <input
-          type="range"
-          min={MIN_ZOOM}
-          max={MAX_ZOOM}
-          step={0.05}
-          value={zoom}
-          onChange={(evt) => onZoomChange(Number(evt.currentTarget.value))}
-          style={{ width: '100%' }}
-          aria-label="Масштаб интерфейса"
-        />
-        <Box shrink="No">
-          <Text size="B300" style={{ minWidth: toRem(48) }} align="Center">
-            {Math.round(zoom * 100)}%
-          </Text>
+        <Box
+          gap="300"
+          alignItems="Center"
+          style={{ paddingTop: config.space.S200, maxWidth: toRem(480) }}
+        >
+          <input
+            type="range"
+            min={MIN_ZOOM}
+            max={MAX_ZOOM}
+            step={0.05}
+            value={zoom}
+            onChange={(evt) => onZoomChange(Number(evt.currentTarget.value))}
+            style={{ width: '100%', accentColor: 'var(--mshh-accent)' }}
+            aria-label={t('general.zoom')}
+          />
+          <Box shrink="No">
+            <Text size="B300" style={{ minWidth: toRem(48) }} align="Center">
+              {Math.round(zoom * 100)}%
+            </Text>
+          </Box>
         </Box>
-      </Box>
-    </SettingTile>
+      </SettingTile>
+      <SettingTile title={t('general.font')} description={t('general.fontDesc')}>
+        <Box gap="200" wrap="Wrap" style={{ paddingTop: config.space.S200 }}>
+          {MSHH_FONTS.map((font) => (
+            <Button
+              key={font.id}
+              size="300"
+              variant="Secondary"
+              fill="Soft"
+              aria-selected={fontId === font.id}
+              style={{
+                fontFamily: font.stack,
+                ...(fontId === font.id
+                  ? { color: 'var(--mshh-accent)', borderColor: 'var(--mshh-accent)' }
+                  : {}),
+              }}
+              onClick={() => setMshhFont(font.id)}
+            >
+              <Text as="span" size="B300">
+                {t(font.labelKey)}
+              </Text>
+            </Button>
+          ))}
+        </Box>
+      </SettingTile>
+      <SettingTile title={t('general.accent')} description={t('general.accentDesc')}>
+        <Box gap="200" wrap="Wrap" style={{ paddingTop: config.space.S200 }}>
+          {MSHH_ACCENTS.map((accent) => (
+            <Button
+              key={accent.id}
+              size="300"
+              variant="Secondary"
+              fill="Soft"
+              aria-selected={accentId === accent.id}
+              style={
+                accentId === accent.id
+                  ? { color: 'var(--mshh-accent)', borderColor: 'var(--mshh-accent)' }
+                  : {}
+              }
+              before={
+                <Box
+                  shrink="No"
+                  style={{
+                    width: toRem(14),
+                    height: toRem(14),
+                    borderRadius: config.radii.Pill,
+                    backgroundColor: accent.accent,
+                    outline:
+                      accentId === accent.id
+                        ? '2px solid var(--mshh-accent)'
+                        : '1px solid var(--mshh-accent-soft)',
+                    outlineOffset: '2px',
+                  }}
+                />
+              }
+              onClick={() => setMshhAccent(accent.id)}
+            >
+              <Text as="span" size="B300">
+                {t(accent.labelKey)}
+              </Text>
+            </Button>
+          ))}
+        </Box>
+      </SettingTile>
+      <SettingTile title={t('general.language')} description={t('general.languageDesc')}>
+        <Box gap="200" wrap="Wrap" style={{ paddingTop: config.space.S200 }}>
+          {(['ru', 'en'] as MshhLang[]).map((lang) => (
+            <Button
+              key={lang}
+              size="300"
+              variant={langId === lang ? 'Primary' : 'Secondary'}
+              fill="Soft"
+              aria-selected={langId === lang}
+              onClick={() => setMshhLang(lang)}
+            >
+              <Text as="span" size="B300">
+                {lang === 'ru' ? 'Русский' : 'English'}
+              </Text>
+            </Button>
+          ))}
+        </Box>
+      </SettingTile>
+    </>
   );
 }
 
 /** Show-only summary of a profile connection fields (phone/api/proxy/...). */
 function connectionSummary(profile: Profile, moduleById: Map<string, ModuleManifest>): string {
   const fields = moduleById.get(profile.moduleId)?.fields ?? [];
-  if (fields.length === 0) return 'У модуля нет полей связи';
   return fields
     .map((field) => {
       const value = profile.config?.[field.name];
@@ -123,11 +226,12 @@ function connectionSummary(profile: Profile, moduleById: Map<string, ModuleManif
 function ModulesTab({ moduleById }: { moduleById: Map<string, ModuleManifest> }) {
   const profiles = useAtomValue(profilesAtom);
   const navigate = useNavigate();
+  const t = useMshhT();
 
   if (profiles.length === 0) {
     return (
       <Text size="T300" priority="300" align="Center">
-        Профилей пока нет
+        {t('profiles.empty')}
       </Text>
     );
   }
@@ -154,7 +258,7 @@ function ModulesTab({ moduleById }: { moduleById: Map<string, ModuleManifest> })
           }
           description={
             <Text size="T200" priority="300" truncate style={{ minWidth: 0 }}>
-              {connectionSummary(profile, moduleById)}
+              {connectionSummary(profile, moduleById) || t('module.noFields')}
             </Text>
           }
           after={
@@ -165,7 +269,7 @@ function ModulesTab({ moduleById }: { moduleById: Map<string, ModuleManifest> })
               onClick={() => navigate(getMshhProfileEditPath(profile.id))}
             >
               <Text as="span" size="B300">
-                Изменить
+                {t('action.edit')}
               </Text>
             </Button>
           }
@@ -185,6 +289,7 @@ function ProfileMetaEditor({
   saving: boolean;
   onSave: (profile: Profile, name: string | null, description: string | null) => Promise<void>;
 }) {
+  const t = useMshhT();
   const [name, setName] = useState(profile.name);
   const [description, setDescription] = useState(profile.meta?.description ?? '');
 
@@ -206,7 +311,7 @@ function ProfileMetaEditor({
       <Input
         value={name}
         onChange={(evt) => setName(evt.currentTarget.value)}
-        placeholder="Имя профиля"
+        placeholder={t('profile.namePlaceholder')}
         variant="SurfaceVariant"
         size="400"
         before={<Icon size="100" src={Icons.User} />}
@@ -214,7 +319,7 @@ function ProfileMetaEditor({
       <TextArea
         value={description}
         onChange={(evt) => setDescription(evt.currentTarget.value)}
-        placeholder="Описание"
+        placeholder={t('profile.descriptionPlaceholder')}
         variant="SurfaceVariant"
         size="400"
         resize="None"
@@ -229,9 +334,87 @@ function ProfileMetaEditor({
           onClick={save}
         >
           <Text as="span" size="B300">
-            Сохранить
+            {t('action.save')}
           </Text>
         </Button>
+      </Box>
+    </Box>
+  );
+}
+
+const AVATAR_SIZE_PX = 200;
+
+/** Большая аватарка профиля: клик = замена файла, hover затемняет и показывает карандаш. */
+function EditableAvatar({
+  profile,
+  busy,
+  onPick,
+}: {
+  profile: Profile;
+  busy: boolean;
+  onPick: () => void;
+}) {
+  const t = useMshhT();
+  const [hover, setHover] = useState(false);
+  const [imgFailed, setImgFailed] = useState(false);
+  const src = profile.meta?.avatarPath;
+
+  // новый файл аватарки — снова попробовать <img>
+  useEffect(() => {
+    setImgFailed(false);
+  }, [src]);
+
+  return (
+    <Box
+      as="button"
+      shrink="No"
+      alignItems="Center"
+      justifyContent="Center"
+      style={{
+        position: 'relative',
+        width: toRem(AVATAR_SIZE_PX),
+        height: toRem(AVATAR_SIZE_PX),
+        borderRadius: config.radii.Pill,
+        overflow: 'hidden',
+        padding: 0,
+        border: 'none',
+        cursor: busy ? 'default' : 'pointer',
+        backgroundColor: colorMXID(profile.id),
+      }}
+      disabled={busy}
+      aria-label={t('profiles.changeAvatar')}
+      title={t('profiles.changeAvatar')}
+      onClick={onPick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
+      {src && !imgFailed ? (
+        <img
+          src={mediaUrl(src)}
+          alt={profile.name}
+          onError={() => setImgFailed(true)}
+          draggable={false}
+          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+        />
+      ) : (
+        <Text size="H1" style={{ color: color.Surface.Container }}>
+          {(profile.name || '?').trim().charAt(0).toUpperCase() || '?'}
+        </Text>
+      )}
+      <Box
+        alignItems="Center"
+        justifyContent="Center"
+        style={{
+          position: 'absolute',
+          inset: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.45)',
+          opacity: hover && !busy ? 1 : 0,
+          transition: 'opacity 120ms ease',
+          color: 'var(--mshh-accent)',
+          pointerEvents: 'none',
+        }}
+      >
+        <Icon size="300" src={Icons.Pencil} />
       </Box>
     </Box>
   );
@@ -247,69 +430,69 @@ function ProfilesTab({
   onPickAvatar: (profile: Profile) => void;
 }) {
   const profiles = useAtomValue(profilesAtom);
+  const t = useMshhT();
 
   if (profiles.length === 0) {
     return (
       <Text size="T300" priority="300" align="Center">
-        Профилей пока нет
+        {t('profiles.empty')}
       </Text>
     );
   }
   return (
     <Box direction="Column" gap="400">
       {profiles.map((profile) => (
-        <SettingTile
+        <Box
           key={profile.id}
-          before={
-            <MshhAvatar
-              id={profile.id}
-              name={profile.name}
-              src={profile.meta?.avatarPath}
-              size="400"
-            />
-          }
-          title={
-            <Box alignItems="Center" gap="200">
-              <Text size="T300" truncate style={{ minWidth: 0 }}>
-                {profile.name}
-              </Text>
-              <ModuleChip name={profile.moduleName} />
-            </Box>
-          }
-          description={
-            <Text size="T200" priority="300" style={{ minWidth: 0 }}>
-              {profile.meta?.description || 'Описание не задано'}
-            </Text>
-          }
-          after={
-            <Button
-              size="300"
-              fill="Soft"
-              aria-disabled={busyId === profile.id}
-              before={<Icon size="100" src={Icons.Photo} />}
-              onClick={() => onPickAvatar(profile)}
-            >
-              <Text as="span" size="B300">
-                Выбрать файл
-              </Text>
-            </Button>
-          }
+          direction="Column"
+          alignItems="Center"
+          gap="300"
+          style={{
+            padding: config.space.S400,
+            borderRadius: config.radii.R400,
+            borderStyle: 'solid',
+            borderWidth: config.borderWidth.B300,
+            borderColor: color.Surface.ContainerLine,
+          }}
         >
-          <ProfileMetaEditor profile={profile} saving={busyId === profile.id} onSave={onSaveMeta} />
-        </SettingTile>
+          <EditableAvatar
+            profile={profile}
+            busy={busyId === profile.id}
+            onPick={() => onPickAvatar(profile)}
+          />
+          <Box alignItems="Center" gap="200" wrap="Wrap" justifyContent="Center">
+            <Text size="H4">{profile.name}</Text>
+            <ModuleChip name={profile.moduleName} />
+          </Box>
+          <Text size="T200" priority="300" align="Center">
+            {profile.meta?.description || t('profiles.noDescription')}
+          </Text>
+          <Box direction="Column" style={{ width: '100%', maxWidth: toRem(480) }}>
+            <ProfileMetaEditor profile={profile} saving={busyId === profile.id} onSave={onSaveMeta} />
+          </Box>
+        </Box>
       ))}
     </Box>
   );
 }
 
-/** App settings: interface zoom, module connection fields, profile meta. */
+/** App settings: interface (zoom/font/accent/language), module profiles, profile meta. */
 export function MshhSettings() {
   const modules = useAtomValue(modulesAtom);
   const navigate = useNavigate();
-  const [tab, setTab] = useState<Tab>('general');
+  const t = useMshhT();
+  const [search, setSearch] = useSearchParams();
+  const tab = tabFromSearch(search.get('tab'));
   const [zoom, setZoom] = useState<number>(readSavedZoom);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  const selectTab = useCallback(
+    (next: Tab) => {
+      setSearch(next === 'general' ? {} : { tab: next });
+    },
+    [setSearch]
+  );
 
   const moduleById = useMemo(
     () => new Map(modules.map((module_) => [module_.id, module_])),
@@ -366,14 +549,14 @@ export function MshhSettings() {
             variant="Background"
             fill="None"
             onClick={() => navigate(getMshhPath())}
-            aria-label="Назад к чатам"
+            aria-label={t('back.toChats')}
           >
             <Icon src={Icons.ArrowGoLeft} />
           </IconButton>
         </Box>
         <Box grow="Yes" style={{ minWidth: 0 }}>
           <Text size="H4" truncate>
-            Настройки
+            {t('settings.title')}
           </Text>
         </Box>
         <Box shrink="No" gap="100">
@@ -381,7 +564,7 @@ export function MshhSettings() {
             variant="Background"
             fill="None"
             onClick={() => navigate(getMshhProfilesPath())}
-            aria-label="Менеджер профилей"
+            aria-label={t('nav.profiles')}
           >
             <Icon src={Icons.Setting} />
           </IconButton>
@@ -389,17 +572,18 @@ export function MshhSettings() {
       </PageHeader>
       <Box shrink="No" direction="Column" gap="200" style={{ padding: config.space.S400 }}>
         <Box gap="200" wrap="Wrap">
-          {TABS.map(({ id, label }) => (
+          {TABS.map(({ id, labelKey }) => (
             <Button
               key={id}
               size="300"
               variant={tab === id ? 'Primary' : 'Secondary'}
               fill="Soft"
               aria-selected={tab === id}
-              onClick={() => setTab(id)}
+              style={tab === id ? { boxShadow: '0 2px 0 0 var(--mshh-accent)' } : undefined}
+              onClick={() => selectTab(id)}
             >
               <Text as="span" size="B300">
-                {label}
+                {t(labelKey)}
               </Text>
             </Button>
           ))}

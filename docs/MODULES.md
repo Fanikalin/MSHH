@@ -82,6 +82,12 @@ module.exports.create = function create(ctx) {
 
     // Показать «печатает» (опционально).
     async sendTyping(chatId) {},
+
+    // Карточка профиля чата/собеседника (опционально; только при
+    // capabilities.peerProfile). Возвращает { fields: [{ label, value }, ...] }:
+    // порядок массива — порядок показа в карточке. Кнопка «ℹ»/правый клик в
+    // шапке чата открывают панель с этими полями.
+    async getPeerProfile(chatId) {},
   };
 };
 ```

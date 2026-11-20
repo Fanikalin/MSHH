@@ -23,7 +23,7 @@ import {
 } from 'folds';
 import { Page, PageHeader } from '../../app/components/page';
 import { NavItem } from '../../app/components/nav';
-import { getMshhPath, getMshhProfilesPath } from '../../app/pages/pathUtils';
+import { getMshhPath, getMshhSettingsPath } from '../../app/pages/pathUtils';
 import { api } from '../api';
 import { clearPrompt, establishedProfiles, moduleDefaultsAtom, profilesAtom, promptsAtom, modulesAtom } from '../state';
 import { ModuleField } from '../types';
@@ -105,10 +105,11 @@ export function MshhProfileForm() {
     setFormConfig((prev) => ({ ...prev, [fieldName]: value }));
 
   /** Назад в форме добавления: к меню выбора модуля (без авторизации профиль
-   *  не создаёт поверхность чатов). Отменяет висящий QR/код-промпт. */
+   *  не создаёт поверхность чатов). Отменяет висящий QR/код-промпт.
+   *  Редактирование профиля открыто из настроек (вкладка «Модули») — туда и назад. */
   const goBack = async () => {
     if (editing) {
-      navigate(getMshhProfilesPath());
+      navigate(`${getMshhSettingsPath()}?tab=modules`);
       return;
     }
     const ownerId = createdId ?? profileId;
@@ -274,7 +275,7 @@ export function MshhProfileForm() {
           await api.disconnectProfile(editing.id);
           await api.connectProfile(editing.id);
         }
-        navigate(getMshhProfilesPath());
+        navigate(`${getMshhSettingsPath()}?tab=modules`);
       } else {
         // остаёмся на форме: QR/статус подключения видны рядом с телефоном
         await connectOrCreate();
@@ -377,7 +378,7 @@ export function MshhProfileForm() {
     setError(null);
     try {
       await api.connectProfile(id);
-      if (editing) navigate(getMshhProfilesPath());
+      if (editing) navigate(`${getMshhSettingsPath()}?tab=modules`);
     } catch (connectError) {
       setError(errorMessage(connectError));
     } finally {

@@ -1268,6 +1268,67 @@ function create(ctx) {
         throw friendlyError(e, 'Telegram: не удалось отправить статус печати');
       }
     },
+
+    /** Карточка чата/собеседника: [{label, value}] — порядок полей задаёт модуль. */
+    async getPeerProfile(chatId) {
+      const client = requireClient();
+      const parsed = parseChatId(chatId);
+      if (!parsed) throw new Error(`Telegram: неизвестный chatId: ${chatId}`);
+      try {
+        const peer = await buildInputPeer(client, parsed);
+        const fields = [];
+
+        if (parsed.prefix === 'u') {
+          // личный чат: профиль пользователя + bio
+          const res = await client.invoke(new Api.users.GetFullUser({
+            id: new Api.InputUser({ userId: bigInt(parsed.id), accessHash: bigInt(parsed.hash) }),
+          }));
+          const user = (res.users || []).find((u) => u.className === 'User');
+          const name = entityName(user) || chatTitle(chatId) || `#${parsed.id}`;
+          fields.push({ label: 'Имя', value: name });
+          if (user?.username) fields.push({ label: 'Имя пользователя', value: `@${user.username}` });
+          if (user?.phone) fields.push({ label: 'Телефон', value: `+${user.phone}` });
+          if (res.fullUser?.about) fields.push({ label: 'О себе', value: res.fullUser.about });
+          if (user?.verified) fields.push({ label: 'Верификация', value: 'подтверждён' });
+          if (res.fullUser?.commonChatsCount) {
+            fields.push({ label: 'Общие чаты', value: String(res.fullUser.commonChatsCount) });
+          }
+        } else if (parsed.prefix === 'c' || parsed.hash) {
+          // канал или супергруппа: профиль канала + описание и число подписчиков
+          const entity = await client.getEntity(peer);
+          const res = await client.invoke(new Api.channels.GetFullChannel({
+            channel: new Api.InputChannel({
+              channelId: bigInt(parsed.id),
+              accessHash: bigInt(parsed.hash),
+            }),
+          }));
+          const full = res.fullChat;
+          fields.push({ label: 'Название', value: entity?.title || chatTitle(chatId) || `#${parsed.id}` });
+          if (entity?.username) fields.push({ label: 'Имя пользователя', value: `@${entity.username}` });
+          if (full?.about) fields.push({ label: 'Описание', value: full.about });
+          const members = bigToNumber(full?.participantsCount);
+          if (members != null) fields.push({ label: 'Участники', value: String(members) });
+          if (entity?.verified) fields.push({ label: 'Верификация', value: 'подтверждён' });
+        } else {
+          // малая группа ('g_<chatId>'): описание и число участников
+          const res = await client.invoke(new Api.messages.GetFullChat({ chatId: Number(parsed.id) }));
+          const full = res.fullChat;
+          const entity = (res.chats || []).find((c) => String(c.id) === parsed.id);
+          fields.push({
+            label: 'Название',
+            value: entityName(entity) || chatTitle(chatId) || `#${parsed.id}`,
+          });
+          if (full?.about) fields.push({ label: 'Описание', value: full.about });
+          const members = bigToNumber(full?.participantsCount);
+          if (members != null) fields.push({ label: 'Участники', value: String(members) });
+        }
+
+        return { fields };
+      } catch (e) {
+        if (isAuthError(e)) handleAuthRevoked();
+        throw friendlyError(e, 'Telegram: не удалось получить сведения о чате');
+      }
+    },
   };
 }
 
