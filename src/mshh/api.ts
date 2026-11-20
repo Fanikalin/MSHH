@@ -29,8 +29,12 @@ async function invoke<T>(channel: string, payload?: unknown): Promise<T> {
 
 export const api = {
   getState: () => invoke<MshhState>('getState'),
-  createProfile: (moduleId: string, name: string, config: Record<string, unknown>, adoptPreview?: boolean) =>
-    invoke<Profile>('profiles.create', { moduleId, name, config, adoptPreview }),
+  createProfile: (
+    moduleId: string,
+    name: string,
+    config: Record<string, unknown>,
+    adoptPreview?: boolean
+  ) => invoke<Profile>('profiles.create', { moduleId, name, config, adoptPreview }),
   updateProfile: (id: string, patch: Record<string, unknown>) =>
     invoke<Profile>('profiles.update', { id, patch }),
   deleteProfile: (id: string) => invoke<null>('profiles.delete', { id }),
