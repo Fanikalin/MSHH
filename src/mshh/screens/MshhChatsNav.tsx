@@ -324,6 +324,15 @@ export function MshhChatsNav() {
         <Input
           value={filters.query}
           onChange={(evt) => setFilters((prev) => ({ ...prev, query: evt.currentTarget.value }))}
+          onKeyDown={(evt) => {
+            // Escape очищает поиск и возвращает фокус списку (как в Telegram)
+            if (evt.key === 'Escape' && filters.query) {
+              evt.preventDefault();
+              evt.stopPropagation();
+              setFilters((prev) => ({ ...prev, query: '' }));
+              evt.currentTarget.blur();
+            }
+          }}
           placeholder="Поиск чатов"
           before={<Icon size="100" src={Icons.Search} />}
           variant="SurfaceVariant"
