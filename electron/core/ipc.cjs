@@ -4,6 +4,7 @@
 
 const { dialog, shell } = require('electron');
 const fs = require('node:fs');
+const path = require('node:path');
 
 function registerIpc({ ipcMain, store, manager, bus, getWin, appVersion, log }) {
   const wrap = (fn) => async (_event, payload) => {
@@ -120,6 +121,31 @@ function registerIpc({ ipcMain, store, manager, bus, getWin, appVersion, log }) 
     const runner = manager.runnerFor(profileId);
     if (!runner) throw new Error('Профиль не запущен');
     return { delivered: runner.respond(promptId, value) };
+  }));
+
+  ipcMain.handle('mshh:profiles.setAvatar', wrap(async ({ id, srcPath }) => {
+    const profile = store.get(id);
+    if (!profile) throw new Error('Профиль не найден');
+    if (typeof srcPath !== 'string' || !fs.existsSync(srcPath)) throw new Error('Файл не найден');
+    const dir = manager.dataDirFor(id);
+    fs.mkdirSync(dir, { recursive: true });
+    const ext = path.extname(srcPath).toLowerCase();
+    const dest = path.join(dir, `avatar${ext || '.bin'}`);
+    fs.copyFileSync(srcPath, dest);
+    const updated = store.update(id, { meta: { avatarPath: dest } });
+    bus.emitStateDirty();
+    return profileState(updated);
+  }));
+
+  ipcMain.handle('mshh:app.setZoom', wrap(async ({ zoom }) => {
+    const factor = Number(zoom);
+    if (!Number.isFinite(factor) || factor < 0.25 || factor > 5) {
+      throw new Error('Недопустимый масштаб');
+    }
+    const win_ = getWin();
+    if (!win_ || win_.isDestroyed()) throw new Error('no window');
+    win_.webContents.setZoomFactor(factor);
+    return null;
   }));
 
   ipcMain.handle('mshh:chats.list', wrap(async () => manager.allChats()));

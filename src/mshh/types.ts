@@ -53,6 +53,13 @@ export type Message = {
 
 export type ProfileStatus = 'disabled' | 'offline' | 'connecting' | 'online' | 'error' | 'renderer';
 
+/** UI-only profile metadata (description, avatar); merged on update. */
+export type ProfileMeta = {
+  description?: string;
+  /** absolute path of the avatar file inside the profile dataDir */
+  avatarPath?: string;
+};
+
 export type ConfigValue = string | number | boolean;
 
 export type Profile = {
@@ -69,6 +76,8 @@ export type Profile = {
   moduleName: string;
   /** модуль ждёт ввод пользователя (QR/код) */
   pendingPrompt?: boolean;
+  /** UI-метаданные (описание, аватарка) */
+  meta?: ProfileMeta;
 };
 
 export type ModuleField = {

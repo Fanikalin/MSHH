@@ -189,6 +189,17 @@ app.whenReady().then(async () => {
 
   win.webContents.once('did-finish-load', () => {
     void manager.startAll();
+    // применить сохранённый масштаб интерфейса (localStorage mshh_zoom) до
+    // первого рендера настроек; дальше его повторно применяет src/mshh/boot.ts
+    void win.webContents
+      .executeJavaScript('localStorage.getItem("mshh_zoom")', true)
+      .then((raw) => {
+        const zoom = Number(raw);
+        if (Number.isFinite(zoom) && zoom > 0 && zoom !== 1) {
+          win.webContents.setZoomFactor(zoom);
+        }
+      })
+      .catch(() => {});
   });
 
   void mediaUrl; // exported for renderer parity; not used in main

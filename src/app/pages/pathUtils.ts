@@ -166,5 +166,6 @@ export const getMshhProfilesPath = (): string => `${MSHH_PATH}/profiles`;
 export const getMshhProfileNewPath = (): string => `${MSHH_PATH}/profiles/new`;
 export const getMshhProfileEditPath = (profileId: string): string =>
   `${MSHH_PATH}/profiles/${encodeURIComponent(profileId)}`;
+export const getMshhSettingsPath = (): string => `${MSHH_PATH}/settings`;
 export const getMshhChatPath = (profileId: string, chatId: string): string =>
   `${MSHH_PATH}/chat/${encodeURIComponent(profileId)}/${encodeURIComponent(chatId)}`;

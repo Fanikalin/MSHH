@@ -94,4 +94,5 @@ export const MSHH_PATH = '/mshh';
 export const _MSHH_PROFILES_PATH = 'profiles/';
 export const _MSHH_PROFILE_NEW_PATH = 'profiles/new/';
 export const _MSHH_PROFILE_EDIT_PATH = 'profiles/:profileId/';
+export const _MSHH_SETTINGS_PATH = 'settings/';
 export const _MSHH_CHAT_PATH = 'chat/:profileId/:chatId/';

@@ -3,6 +3,7 @@ export { MshhHome } from './MshhHome';
 export { MshhChatsNav } from './MshhChatsNav';
 export { MshhChat } from './MshhChat';
 export { MshhProfiles } from './MshhProfiles';
+export { MshhSettings } from './MshhSettings';
 export { MshhProfileForm } from './MshhProfileForm';
 export { PromptDialog } from './PromptDialog';
 export { Welcome } from './Welcome';

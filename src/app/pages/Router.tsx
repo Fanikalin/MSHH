@@ -33,6 +33,7 @@ import {
   _MSHH_PROFILES_PATH,
   _MSHH_PROFILE_NEW_PATH,
   _MSHH_PROFILE_EDIT_PATH,
+  _MSHH_SETTINGS_PATH,
   _MSHH_CHAT_PATH,
 } from './paths';
 import {
@@ -76,7 +77,14 @@ import { SearchModalRenderer } from '../features/search';
 import { getFallbackSession } from '../state/sessions';
 import { CallStatusRenderer } from './CallStatusRenderer';
 import { CallEmbedProvider } from '../components/CallEmbedProvider';
-import { MshhIndex, MshhHome, MshhChat, MshhProfiles, MshhProfileForm } from '../../mshh/screens';
+import {
+  MshhIndex,
+  MshhHome,
+  MshhChat,
+  MshhProfiles,
+  MshhSettings,
+  MshhProfileForm,
+} from '../../mshh/screens';
 import { MshhEmpty } from '../../mshh/components/EmptyState';
 
 export const createRouter = (clientConfig: ClientConfig, screenSize: ScreenSize) => {
@@ -109,6 +117,7 @@ export const createRouter = (clientConfig: ClientConfig, screenSize: ScreenSize)
         <Route path={_MSHH_PROFILES_PATH} element={<MshhProfiles />} />
         <Route path={_MSHH_PROFILE_NEW_PATH} element={<MshhProfileForm />} />
         <Route path={_MSHH_PROFILE_EDIT_PATH} element={<MshhProfileForm />} />
+        <Route path={_MSHH_SETTINGS_PATH} element={<MshhSettings />} />
       </Route>
       <Route
         loader={() => {

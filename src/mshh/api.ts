@@ -34,6 +34,9 @@ export const api = {
   updateProfile: (id: string, patch: Record<string, unknown>) =>
     invoke<Profile>('profiles.update', { id, patch }),
   deleteProfile: (id: string) => invoke<null>('profiles.delete', { id }),
+  setProfileAvatar: (id: string, srcPath: string) =>
+    invoke<Profile>('profiles.setAvatar', { id, srcPath }),
+  setZoom: (zoom: number) => invoke<null>('app.setZoom', { zoom }),
   setProfileEnabled: (id: string, enabled: boolean) =>
     invoke<Profile>('profiles.update', { id, patch: { enabled } }),
   connectProfile: (id: string) =>

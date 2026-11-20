@@ -26,6 +26,7 @@ import {
   getMshhPath,
   getMshhProfileEditPath,
   getMshhProfileNewPath,
+  getMshhSettingsPath,
 } from '../../app/pages/pathUtils';
 import { api } from '../api';
 import { profilesAtom } from '../state';
@@ -101,7 +102,15 @@ export function MshhProfiles() {
             Профили
           </Text>
         </Box>
-        <Box shrink="No">
+        <Box shrink="No" gap="100">
+          <IconButton
+            variant="Background"
+            fill="None"
+            onClick={() => navigate(getMshhSettingsPath())}
+            aria-label="Настройки"
+          >
+            <Icon src={Icons.HorizontalDots} />
+          </IconButton>
           <Button
             size="300"
             variant="Primary"

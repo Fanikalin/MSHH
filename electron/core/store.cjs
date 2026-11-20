@@ -84,7 +84,7 @@ class ProfileStore {
     return profile;
   }
 
-  /** Apply patch { name?, enabled?, config? }. Full config replace (form-driven). */
+  /** Apply patch { name?, enabled?, config?, meta? }. Full config replace (form-driven); meta merges. */
   update(id, patch) {
     const profile = this.get(id);
     if (!profile) throw new MshhUserError('Профиль не найден');
@@ -95,6 +95,9 @@ class ProfileStore {
     }
     if (typeof patch.name === 'string' && patch.name.trim()) profile.name = patch.name.trim();
     if (typeof patch.enabled === 'boolean') profile.enabled = patch.enabled;
+    if (patch.meta !== undefined && patch.meta && typeof patch.meta === 'object') {
+      profile.meta = { ...profile.meta, ...patch.meta };
+    }
     this.save();
     return profile;
   }

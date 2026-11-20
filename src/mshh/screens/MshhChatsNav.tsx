@@ -9,6 +9,7 @@ import {
   getMshhChatPath,
   getMshhProfileNewPath,
   getMshhProfilesPath,
+  getMshhSettingsPath,
 } from '../../app/pages/pathUtils';
 import { Chat, Profile } from '../types';
 import { chatsAtom, establishedProfiles, filtersAtom, modulesAtom, profilesAtom } from '../state';
@@ -293,6 +294,15 @@ export function MshhChatsNav() {
             aria-label="Менеджер профилей"
           >
             <Icon size="200" src={Icons.Setting} />
+          </IconButton>
+          <IconButton
+            variant="Background"
+            fill="None"
+            radii="300"
+            onClick={() => navigate(getMshhSettingsPath())}
+            aria-label="Настройки"
+          >
+            <Icon size="200" src={Icons.HorizontalDots} />
           </IconButton>
           <IconButton
             variant="Background"
