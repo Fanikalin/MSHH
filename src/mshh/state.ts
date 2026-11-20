@@ -203,6 +203,12 @@ export async function startMshhCore() {
         .catch(() => {
           // ignore state refresh failures
         });
+      // drop pending prompts of profiles that no longer exist (deleted while
+      // a code/QR dialog was pending) so no dialog renders for a ghost profile
+      const alive = new Set(store.get(profilesAtom).map((p) => p.id));
+      const prompts = store.get(promptsAtom);
+      const next = new Map([...prompts.entries()].filter(([id]) => alive.has(id)));
+      if (next.size !== prompts.size) store.set(promptsAtom, next);
     });
   } catch (e) {
     store.set(coreErrorAtom, e instanceof Error ? e.message : String(e));

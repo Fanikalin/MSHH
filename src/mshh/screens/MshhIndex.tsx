@@ -3,8 +3,9 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { Provider, getDefaultStore, useAtomValue } from 'jotai';
 import { Box, Spinner, Text, config, toRem } from 'folds';
 import { coreErrorAtom, coreReadyAtom, establishedProfiles, profilesAtom } from '../state';
-import { getMshhProfilesPath } from '../../app/pages/pathUtils';
+import { getMshhPath, getMshhProfilesPath } from '../../app/pages/pathUtils';
 import { Welcome } from './Welcome';
+import { PromptDialog } from './PromptDialog';
 
 /**
  * state.ts ingests IPC events through jotai's default store, while the Cinny app
@@ -18,8 +19,14 @@ function MshhGate() {
   const coreReady = useAtomValue(coreReadyAtom);
   const coreError = useAtomValue(coreErrorAtom);
   const location = useLocation();
-  // ошибочные/ещё не авторизованные профили поверхность чатов не открывают
+  // Ошибочные/ещё не авторизованные профили поверхность чатов не открывают
   const established = establishedProfiles(profiles);
+  // Площадки без собственного PromptDialog (чат и форма профиля рендерят свой):
+  // список чатов, менеджер профилей, настройки. Здесь авторизационный код/QR,
+  // пришедший от модуля, должен быть виден в любом месте приложения.
+  const path = location.pathname;
+  const surfaceRendersOwnDialog =
+    path.startsWith(`${getMshhPath()}/chat/`) || path.startsWith(`${getMshhProfilesPath()}/`);
 
   if (!coreReady) {
     return (
@@ -56,7 +63,12 @@ function MshhGate() {
     return <Welcome />;
   }
 
-  return <Outlet />;
+  return (
+    <>
+      {!surfaceRendersOwnDialog && <PromptDialog />}
+      <Outlet />
+    </>
+  );
 }
 
 /** Root of the MSHH route subtree: gates on core readiness and profile count. */

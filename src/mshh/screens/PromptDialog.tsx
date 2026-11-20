@@ -86,7 +86,7 @@ export function PromptDialog({ profileId }: PromptDialogProps) {
                   {payload.title ?? 'Подтверждение входа'}
                 </Text>
               </Box>
-              <IconButton size="300" onClick={() => respond('')} radii="300">
+              <IconButton size="300" onClick={() => respond('')} radii="300" aria-label="Закрыть">
                 <Icon src={Icons.Cross} />
               </IconButton>
             </Header>
@@ -117,6 +117,9 @@ export function PromptDialog({ profileId }: PromptDialogProps) {
                     value={value}
                     type={payload.secret ? 'password' : 'text'}
                     onChange={(evt) => setValue(evt.currentTarget.value)}
+                    onKeyDown={(evt) => {
+                      if (evt.key === 'Enter' && value.trim()) respond(value);
+                    }}
                     placeholder={payload.kind === 'code' ? 'Введите код' : 'Введите ответ'}
                     autoFocus
                   />
