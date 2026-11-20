@@ -124,6 +124,18 @@ export function MshhProfileForm() {
       }
     }
     if (moduleId) {
+      // QR-превью текущего модуля: снять его промпты и остановить сессию
+      const previewId = `preview_${moduleId}`;
+      const pendingPreview = profilePrompts.get(previewId);
+      if (pendingPreview) {
+        try {
+          await api.respondPrompt(previewId, pendingPreview.payload.promptId, '');
+        } catch {
+          /* промпт превью уже исчез */
+        }
+        clearPrompt(previewId);
+      }
+      api.formPreviewStop(moduleId).catch(() => undefined);
       setModuleId(null);
       setName('');
       setFormConfig({});
@@ -132,6 +144,20 @@ export function MshhProfileForm() {
     }
     navigate(getMshhPath());
   };
+
+  // Уход с формы добавления (любым путём) останавливает QR-превью и снимает
+  // его промпты — иначе сессия авторизации живёт в фоне до конца работы приложения.
+  const moduleIdRef = useRef<string | null>(null);
+  moduleIdRef.current = moduleId;
+  useEffect(
+    () => () => {
+      const id = moduleIdRef.current;
+      if (!id) return;
+      clearPrompt(`preview_${id}`);
+      api.formPreviewStop(id).catch(() => undefined);
+    },
+    []
+  );
 
   const buildConfig = (): ProfileConfig => {
     const result: ProfileConfig = {};
